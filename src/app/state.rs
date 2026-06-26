@@ -1443,7 +1443,6 @@ pub struct AppState {
     /// Detected dev servers keyed by the pane they were found in.
     pub detected_dev_servers:
         std::collections::HashMap<crate::layout::PaneId, crate::detect::DevServerInfo>,
-    pub dev_server_panel_scroll: usize,
     pub kitty_graphics_enabled: bool,
     pub default_shell: String,
     pub shell_mode: crate::config::ShellModeConfig,
@@ -1841,7 +1840,6 @@ impl AppState {
             terminal_runtime_shutdowns: Vec::new(),
             dev_servers_panel_enabled: false,
             detected_dev_servers: std::collections::HashMap::new(),
-            dev_server_panel_scroll: 0,
         }
     }
 

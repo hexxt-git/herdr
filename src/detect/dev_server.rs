@@ -430,8 +430,11 @@ pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
         }
     }
     if let Some(after) = screen.find("tcp://") {
-        if let Some(colon) = screen[after..].rfind(':') {
-            if let Some(port) = first_port_after(&screen[after + colon..], ":") {
+        // Skip past "tcp://" then find the first ':' to locate the port separator.
+        // Using rfind here would pick the wrong port when multiple tcp:// URLs appear.
+        let url_tail = &screen[after + 6..];
+        if let Some(colon) = url_tail.find(':') {
+            if let Some(port) = first_port_after(&url_tail[colon..], ":") {
                 return Some(port);
             }
         }
@@ -612,6 +615,13 @@ mod tests {
     #[test]
     fn extract_port_from_rails_puma_banner() {
         let screen = "Puma starting...\nListening on tcp://127.0.0.1:3000";
+        assert_eq!(extract_port_from_screen(screen), Some(3000));
+    }
+
+    #[test]
+    fn extract_port_from_tcp_url_picks_first_not_last() {
+        // rfind would return 3001; find must return 3000
+        let screen = "tcp://0.0.0.0:3000 tcp://0.0.0.0:3001";
         assert_eq!(extract_port_from_screen(screen), Some(3000));
     }
 
