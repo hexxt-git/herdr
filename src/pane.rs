@@ -845,7 +845,7 @@ fn spawn_basic_detection_task(
 
 /// Spawn a background task that detects dev servers running in a pane.
 ///
-/// Polls every 2 seconds, reads a wider text window than the agent detector,
+/// Polls every 1 second, reads a wider text window than the agent detector,
 /// inspects OS socket state (Linux), and emits `DevServerDetected` /
 /// `DevServerGone` events when the result changes.
 #[cfg(unix)]

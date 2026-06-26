@@ -1145,7 +1145,7 @@ fn render_dev_server_panel(
     let body_bottom = body_y + body_h;
 
     let mut row_y = body_y;
-    for entry in entries.iter().skip(app.dev_server_panel_scroll) {
+    for entry in entries.iter() {
         if row_y.saturating_add(1) >= body_bottom {
             break;
         }

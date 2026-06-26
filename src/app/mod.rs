@@ -611,7 +611,6 @@ impl App {
                 .switch_ascii_input_source_in_prefix,
             dev_servers_panel_enabled: config.experimental.dev_servers_panel,
             detected_dev_servers: std::collections::HashMap::new(),
-            dev_server_panel_scroll: 0,
             kitty_graphics_enabled: config.experimental.kitty_graphics,
             default_shell: config.terminal.default_shell.clone(),
             shell_mode: config.terminal.shell_mode,

@@ -72,7 +72,7 @@ impl AppState {
 
         let entries = crate::ui::dev_server_entries_from(self, None);
         let mut row_y = body_y;
-        for entry in entries.into_iter().skip(self.dev_server_panel_scroll) {
+        for entry in entries.into_iter() {
             if row_y.saturating_add(1) >= body_bottom {
                 break;
             }
