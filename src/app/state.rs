@@ -930,10 +930,15 @@ impl SettingsSection {
 pub(crate) enum ExperimentSetting {
     PaneHistory,
     SwitchAsciiInputSourceInPrefix,
+    DevServersPanel,
 }
 
 impl ExperimentSetting {
-    pub(crate) const ALL: [Self; 2] = [Self::PaneHistory, Self::SwitchAsciiInputSourceInPrefix];
+    pub(crate) const ALL: [Self; 3] = [
+        Self::PaneHistory,
+        Self::SwitchAsciiInputSourceInPrefix,
+        Self::DevServersPanel,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -941,6 +946,7 @@ impl ExperimentSetting {
             Self::SwitchAsciiInputSourceInPrefix => {
                 "switch to ascii input source in prefix (macOS)"
             }
+            Self::DevServersPanel => "dev servers panel",
         }
     }
 
@@ -950,6 +956,7 @@ impl ExperimentSetting {
             Self::SwitchAsciiInputSourceInPrefix => {
                 state.switch_ascii_input_source_in_prefix_enabled()
             }
+            Self::DevServersPanel => state.dev_servers_panel_enabled,
         }
     }
 }
@@ -1432,6 +1439,11 @@ pub struct AppState {
     /// CJK IME is active. macOS only; a no-op elsewhere. See
     /// `[experimental] switch_ascii_input_source_in_prefix`.
     pub switch_ascii_input_source_in_prefix: bool,
+    pub dev_servers_panel_enabled: bool,
+    /// Detected dev servers keyed by the pane they were found in.
+    pub detected_dev_servers:
+        std::collections::HashMap<crate::layout::PaneId, crate::detect::DevServerInfo>,
+    pub dev_server_panel_scroll: usize,
     pub kitty_graphics_enabled: bool,
     pub default_shell: String,
     pub shell_mode: crate::config::ShellModeConfig,
@@ -1827,6 +1839,9 @@ impl AppState {
             host_terminal_theme: TerminalTheme::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            dev_servers_panel_enabled: false,
+            detected_dev_servers: std::collections::HashMap::new(),
+            dev_server_panel_scroll: 0,
         }
     }
 

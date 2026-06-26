@@ -847,6 +847,73 @@ fn spawn_basic_detection_task(
     (handle.abort_handle(), detect_reset_notify, pending_release)
 }
 
+/// Spawn a background task that detects dev servers running in a pane.
+///
+/// Polls every 2 seconds, reads a wider text window than the agent detector,
+/// inspects OS socket state (Linux), and emits `DevServerDetected` /
+/// `DevServerGone` events when the result changes.
+#[cfg(unix)]
+fn spawn_dev_server_detection_task(
+    pane_id: crate::layout::PaneId,
+    child_pid: Arc<AtomicU32>,
+    terminal: Arc<PaneTerminal>,
+    state_events: mpsc::Sender<crate::events::AppEvent>,
+) -> tokio::task::AbortHandle {
+    let handle = tokio::spawn(async move {
+        let mut last: Option<crate::detect::DevServerInfo> = None;
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+            let pid = child_pid.load(Ordering::Acquire);
+            if pid == 0 {
+                if last.is_some() {
+                    last = None;
+                    let _ = state_events
+                        .send(crate::events::AppEvent::DevServerGone { pane_id })
+                        .await;
+                }
+                continue;
+            }
+
+            let pgid = crate::detect::foreground_process_group_id(pid);
+            let job = pgid.and_then(|g| {
+                crate::detect::foreground_job(pid)
+                    .or_else(|| crate::detect::foreground_group_leader_job(g))
+            });
+            let argv: Option<Vec<String>> = job.as_ref().and_then(|j| {
+                j.processes
+                    .iter()
+                    .find(|p| pgid == Some(p.pid))
+                    .or_else(|| j.processes.first())
+                    .and_then(|p| p.argv.clone())
+            });
+
+            let screen = terminal.recent_text(150);
+            let ports = pgid
+                .map(crate::platform::listening_ports_for_pgrp)
+                .unwrap_or_default();
+
+            let current =
+                crate::detect::dev_server::detect_dev_server(argv.as_deref(), &screen, &ports);
+
+            if current != last {
+                let event = match &current {
+                    Some(info) => crate::events::AppEvent::DevServerDetected {
+                        pane_id,
+                        info: info.clone(),
+                    },
+                    None => crate::events::AppEvent::DevServerGone { pane_id },
+                };
+                let _ = state_events.send(event).await;
+                last = current;
+            }
+        }
+    });
+
+    handle.abort_handle()
+}
+
 impl AgentDetectionPresence {
     fn from_agent(current_agent: Option<Agent>) -> Self {
         Self {
@@ -918,6 +985,7 @@ pub struct PaneRuntime {
     preserve_processes_on_drop: bool,
     // Task handles for deterministic shutdown
     detect_handle: tokio::task::AbortHandle,
+    dev_server_detect_handle: tokio::task::AbortHandle,
 }
 
 enum PaneRuntimeIo {
@@ -1062,6 +1130,7 @@ impl Drop for PaneRuntime {
         // Abort detection task immediately and terminate the owned session.
         // The PTY actor shuts down before the process/session policy runs.
         self.detect_handle.abort();
+        self.dev_server_detect_handle.abort();
         self.io.shutdown();
         if !self.preserve_processes_on_drop {
             shutdown_pane_processes(
@@ -1412,6 +1481,7 @@ fn publish_reported_cwd(
 impl PaneRuntime {
     pub fn shutdown(mut self) {
         self.detect_handle.abort();
+        self.dev_server_detect_handle.abort();
         self.io.shutdown();
         shutdown_pane_processes(
             self.pane_id,
@@ -1436,6 +1506,7 @@ impl PaneRuntime {
             );
         }
         self.detect_handle.abort();
+        self.dev_server_detect_handle.abort();
         self.preserve_processes_on_drop = true;
     }
 
@@ -1771,8 +1842,13 @@ impl PaneRuntime {
             terminal.clone(),
             detection_content_seq.clone(),
             full_lifecycle_authority_active.clone(),
-            events,
+            events.clone(),
         );
+        #[cfg(unix)]
+        let dev_server_detect_handle =
+            spawn_dev_server_detection_task(pane_id, child_pid.clone(), terminal.clone(), events);
+        #[cfg(not(unix))]
+        let dev_server_detect_handle = tokio::spawn(async {}).abort_handle();
 
         Ok(Self {
             pane_id,
@@ -1789,6 +1865,7 @@ impl PaneRuntime {
             pending_release,
             preserve_processes_on_drop: true,
             detect_handle,
+            dev_server_detect_handle,
         })
     }
 
@@ -2282,6 +2359,16 @@ impl PaneRuntime {
             (handle.abort_handle(), detect_reset_notify, pending_release)
         };
 
+        #[cfg(unix)]
+        let dev_server_detect_handle = spawn_dev_server_detection_task(
+            pane_id,
+            child_pid.clone(),
+            terminal.clone(),
+            events.clone(),
+        );
+        #[cfg(not(unix))]
+        let dev_server_detect_handle = tokio::spawn(async {}).abort_handle();
+
         Ok(Self {
             pane_id,
             terminal,
@@ -2297,6 +2384,7 @@ impl PaneRuntime {
             pending_release,
             preserve_processes_on_drop: false,
             detect_handle,
+            dev_server_detect_handle,
         })
     }
 
@@ -2737,6 +2825,7 @@ impl PaneRuntime {
                 pending_release: Arc::new(Mutex::new(None)),
                 preserve_processes_on_drop: true,
                 detect_handle: tokio::spawn(async {}).abort_handle(),
+                dev_server_detect_handle: tokio::spawn(async {}).abort_handle(),
             },
             rx,
         )
@@ -3195,6 +3284,7 @@ mod tests {
             pending_release: Arc::new(Mutex::new(None)),
             preserve_processes_on_drop: true,
             detect_handle: tokio::spawn(async {}).abort_handle(),
+            dev_server_detect_handle: tokio::spawn(async {}).abort_handle(),
         };
 
         assert!(runtime.try_send_focus_event(crate::ghostty::FocusEvent::Gained));
@@ -3226,6 +3316,7 @@ mod tests {
             pending_release: Arc::new(Mutex::new(None)),
             preserve_processes_on_drop: true,
             detect_handle: tokio::spawn(async {}).abort_handle(),
+            dev_server_detect_handle: tokio::spawn(async {}).abort_handle(),
         };
 
         assert!(!runtime.try_send_focus_event(crate::ghostty::FocusEvent::Gained));

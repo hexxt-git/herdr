@@ -310,6 +310,9 @@ impl App {
                         SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                             self.save_switch_ascii_input_source_in_prefix(enabled)
                         }
+                        SettingsAction::SaveDevServersPanel(enabled) => {
+                            self.save_dev_servers_panel(enabled)
+                        }
                         SettingsAction::InstallRecommendedIntegrations => {
                             self.install_recommended_integrations()
                         }
