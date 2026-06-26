@@ -341,6 +341,10 @@ pub fn process_exists(pid: u32) -> bool {
     ok && exit_code == STILL_ACTIVE
 }
 
+pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
+    Vec::new()
+}
+
 pub fn write_clipboard(_bytes: &[u8]) -> bool {
     false
 }

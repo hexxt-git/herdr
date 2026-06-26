@@ -453,6 +453,10 @@ fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
     }
 }
 
+pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
+    Vec::new()
+}
+
 pub fn write_clipboard(bytes: &[u8]) -> bool {
     run_clipboard_command(
         &ClipboardCommand {

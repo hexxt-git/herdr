@@ -882,6 +882,9 @@ pub struct ExperimentalConfig {
     /// source when prefix mode exits. macOS only; a no-op elsewhere and a
     /// best-effort no-op if the switch fails. Default: false.
     pub switch_ascii_input_source_in_prefix: bool,
+    /// Show a "servers" panel in the sidebar listing detected dev servers and
+    /// the ports they are listening on. Default: false.
+    pub dev_servers_panel: bool,
 }
 
 impl Default for KeysConfig {

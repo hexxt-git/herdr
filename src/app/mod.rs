@@ -609,6 +609,9 @@ impl App {
             switch_ascii_input_source_in_prefix: config
                 .experimental
                 .switch_ascii_input_source_in_prefix,
+            dev_servers_panel_enabled: config.experimental.dev_servers_panel,
+            detected_dev_servers: std::collections::HashMap::new(),
+            dev_server_panel_scroll: 0,
             kitty_graphics_enabled: config.experimental.kitty_graphics,
             default_shell: config.terminal.default_shell.clone(),
             shell_mode: config.terminal.shell_mode,
@@ -1362,6 +1365,7 @@ impl App {
                 config.experimental.cjk_ime_cursor_shape.to_decscusr();
             self.state.switch_ascii_input_source_in_prefix =
                 config.experimental.switch_ascii_input_source_in_prefix;
+            self.state.dev_servers_panel_enabled = config.experimental.dev_servers_panel;
             self.persist_pane_history = config.experimental.pane_history;
             self.state.pane_history_persistence = config.experimental.pane_history;
             if !self.persist_pane_history {

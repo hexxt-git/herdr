@@ -19,6 +19,7 @@ pub(super) enum SettingsAction {
     SaveAgentBorderLabels(bool),
     SavePaneHistory(bool),
     SaveSwitchAsciiInputSourceInPrefix(bool),
+    SaveDevServersPanel(bool),
     InstallRecommendedIntegrations,
 }
 
@@ -33,6 +34,9 @@ fn experiment_toggle_action(state: &AppState, idx: usize) -> Option<SettingsActi
                 !ExperimentSetting::SwitchAsciiInputSourceInPrefix.enabled(state),
             ))
         }
+        ExperimentSetting::DevServersPanel => Some(SettingsAction::SaveDevServersPanel(
+            !ExperimentSetting::DevServersPanel.enabled(state),
+        )),
     }
 }
 
@@ -52,6 +56,9 @@ impl App {
                 }
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
+                }
+                SettingsAction::SaveDevServersPanel(enabled) => {
+                    self.save_dev_servers_panel(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
