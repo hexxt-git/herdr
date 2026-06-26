@@ -37,6 +37,8 @@ pub(crate) struct DevServerEntry {
     pub workspace_name: String,
     pub tool: &'static str,
     pub port: u16,
+    pub pane_id: crate::layout::PaneId,
+    pub ws_idx: usize,
 }
 
 /// Build the list of dev server entries from detected servers in `AppState`.
@@ -53,7 +55,7 @@ pub(crate) fn dev_server_entries_from(
         }
     };
     let mut entries = Vec::new();
-    for ws in &app.workspaces {
+    for (ws_idx, ws) in app.workspaces.iter().enumerate() {
         let ws_name = ws.display_name_from(&app.terminals, runtimes);
         for tab in &ws.tabs {
             for pane_id in tab.layout.pane_ids() {
@@ -62,12 +64,29 @@ pub(crate) fn dev_server_entries_from(
                         workspace_name: ws_name.clone(),
                         tool: info.tool,
                         port: info.port,
+                        pane_id,
+                        ws_idx,
                     });
                 }
             }
         }
     }
     entries
+}
+
+fn is_active_server_pane(app: &AppState, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
+    let Some(active_ws_idx) = app.active else {
+        return false;
+    };
+    if ws_idx != active_ws_idx {
+        return false;
+    }
+    let Some(ws) = app.workspaces.get(ws_idx) else {
+        return false;
+    };
+    ws.active_tab()
+        .map(|tab| tab.layout.focused())
+        .is_some_and(|focused| focused == pane_id)
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -1064,7 +1083,7 @@ fn render_workspace_list(
 /// Agents get enough height for their header plus up to half the entries; the
 /// servers panel gets the remainder.  When agents have very few entries the
 /// split tends toward 50/50 of the total height.
-fn split_detail_area(app: &AppState, area: Rect) -> (Rect, Rect) {
+pub(crate) fn split_detail_area(app: &AppState, area: Rect) -> (Rect, Rect) {
     if area.height == 0 {
         return (Rect::default(), Rect::default());
     }
@@ -1131,19 +1150,33 @@ fn render_dev_server_panel(
             break;
         }
 
+        let is_active = is_active_server_pane(app, entry.ws_idx, entry.pane_id);
+        let row_style = if is_active {
+            Style::default().bg(p.surface_dim)
+        } else {
+            Style::default()
+        };
+        let name_style = if is_active {
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
+        };
+        let port_style = if is_active {
+            Style::default().fg(p.overlay0)
+        } else {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+        };
+
         // Row 1: "✓ workspace-name"
         let name_line = Line::from(vec![
             Span::styled(
                 " ✓ ",
                 Style::default().fg(p.green).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                entry.workspace_name.clone(),
-                Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(entry.workspace_name.clone(), name_style),
         ]);
         frame.render_widget(
-            Paragraph::new(name_line),
+            Paragraph::new(name_line).style(row_style),
             Rect::new(area.x, row_y, area.width, 1),
         );
         row_y += 1;
@@ -1156,13 +1189,10 @@ fn render_dev_server_panel(
         let detail_line = Line::from(vec![
             Span::styled("   ", Style::default()),
             Span::styled(entry.tool.to_string(), Style::default().fg(p.green)),
-            Span::styled(
-                format!(" · localhost:{}", entry.port),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-            ),
+            Span::styled(format!(" · localhost:{}", entry.port), port_style),
         ]);
         frame.render_widget(
-            Paragraph::new(detail_line),
+            Paragraph::new(detail_line).style(row_style),
             Rect::new(area.x, row_y, area.width, 1),
         );
         row_y += 1;

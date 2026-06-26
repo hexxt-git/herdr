@@ -578,6 +578,12 @@ impl AppState {
                         self.mode = Mode::Terminal;
                         return None;
                     }
+
+                    if let Some((ws_idx, pane_id)) = self.dev_server_detail_target_at(mouse.row) {
+                        self.focus_pane_in_workspace(ws_idx, pane_id);
+                        self.mode = Mode::Terminal;
+                        return None;
+                    }
                 } else if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
                     if self.mode != Mode::Terminal {
