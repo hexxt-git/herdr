@@ -29,7 +29,9 @@ pub fn detect_tool_from_argv(argv: &[String]) -> Option<&'static str> {
             "storybook" | "start-storybook" => return Some("storybook"),
             "hexo" if joined.contains(" server") || joined.contains(" s") => return Some("hexo"),
             "hugo" => return Some("hugo"),
-            "jekyll" if joined.contains(" serve") || joined.contains(" s") => return Some("jekyll"),
+            "jekyll" if joined.contains(" serve") || joined.contains(" s") => {
+                return Some("jekyll")
+            }
             "eleventy" | "@11ty/eleventy" => return Some("eleventy"),
             "http-server" => return Some("http-server"),
             "serve" if joined.contains(" serve ") || joined.ends_with(" serve") => {
@@ -39,9 +41,7 @@ pub fn detect_tool_from_argv(argv: &[String]) -> Option<&'static str> {
             "mdbook" if joined.contains(" serve") || joined.contains(" watch") => {
                 return Some("mdbook")
             }
-            "trunk"
-                if joined.contains(" serve") || joined.contains(" watch") =>
-            {
+            "trunk" if joined.contains(" serve") || joined.contains(" watch") => {
                 return Some("trunk")
             }
             "webpack-dev-server" | "webpack-dev-server.js" => return Some("webpack"),
@@ -50,26 +50,65 @@ pub fn detect_tool_from_argv(argv: &[String]) -> Option<&'static str> {
                 return Some("nextjs")
             }
             "nest" if joined.contains(" start") => return Some("nestjs"),
-            "remix" if joined.contains(" dev") || joined.contains(" vite") => {
-                return Some("remix")
-            }
+            "remix" if joined.contains(" dev") || joined.contains(" vite") => return Some("remix"),
             "react-scripts" if joined.contains(" start") => return Some("react"),
             "svelte-kit" | "sveltekit" => return Some("sveltekit"),
-            "shadow-cljs"
-                if joined.contains(" watch") || joined.contains(" server") =>
-            {
+            "shadow-cljs" if joined.contains(" watch") || joined.contains(" server") => {
                 return Some("shadow-cljs")
             }
             "uvicorn" | "hypercorn" => return Some("uvicorn"),
             "gunicorn" => return Some("gunicorn"),
             "flask" if joined.contains(" run") => return Some("flask"),
             "litestar" | "starlette" => return Some("litestar"),
+            // Go
             "air" => return Some("air"),
+            // PHP
             "artisan" if joined.contains(" serve") => return Some("laravel"),
+            // Rust
+            "cargo"
+                if joined.contains(" run")
+                    || joined.contains(" watch")
+                    || joined.contains(" serve") =>
+            {
+                return Some("cargo")
+            }
+            // .NET / C#
+            "dotnet" if joined.contains(" run") || joined.contains(" watch") => {
+                return Some("dotnet")
+            }
+            // Gleam
+            "gleam" if joined.contains(" run") || joined.contains(" watch") => {
+                return Some("gleam")
+            }
+            // Databases
+            "postgres" | "postgresql" | "pg_ctl" | "pg_ctlcluster" => return Some("postgres"),
+            "mysqld" | "mariadbd" => return Some("mysql"),
+            "mongod" => return Some("mongodb"),
+            "redis-server" => return Some("redis"),
+            "cockroach" if joined.contains(" start") || joined.contains(" demo") => {
+                return Some("cockroachdb")
+            }
+            // DevOps / monitoring
+            "prometheus" => return Some("prometheus"),
+            "grafana-server" | "grafana" => return Some("grafana"),
+            "consul" if joined.contains(" agent") || joined.contains(" dev") => {
+                return Some("consul")
+            }
+            "vault" if joined.contains(" server") || joined.contains(" dev") => {
+                return Some("vault")
+            }
+            "etcd" => return Some("etcd"),
+            "minio" => return Some("minio"),
+            "jaeger-all-in-one" | "jaeger-collector" | "jaeger-agent" => return Some("jaeger"),
+            "zipkin" => return Some("zipkin"),
+            // Shell-level servers
+            "nc" | "ncat" | "netcat" if joined.contains(" -l") => return Some("netcat"),
+            "socat" => return Some("socat"),
             _ => {}
         }
     }
 
+    // Multi-token joined patterns
     if joined.contains("manage.py") && joined.contains("runserver") {
         return Some("django");
     }
@@ -82,7 +121,6 @@ pub fn detect_tool_from_argv(argv: &[String]) -> Option<&'static str> {
         return Some("rails");
     }
     if joined.contains("php") && joined.contains(" -s") {
-        // "php -S ..." — uppercase S in the original; lowercased here
         return Some("php");
     }
     if joined.contains("mix") && joined.contains("phx.server") {
@@ -105,15 +143,21 @@ pub fn detect_tool_from_argv(argv: &[String]) -> Option<&'static str> {
     if joined.contains("sbt") && (joined.contains(" run") || joined.contains(" ~run")) {
         return Some("scala");
     }
-    if joined.contains("dotnet") && joined.contains(" run") {
-        return Some("dotnet");
+    // python -m http.server
+    if joined.contains("python") && joined.contains(" -m http.server") {
+        return Some("http.server");
     }
-    if argv.first().map(|a| path_basename(a)).unwrap_or("") == "bun"
+    // ruby -run -e httpd (built-in file server)
+    if joined.contains("ruby") && joined.contains("-run") && joined.contains("-e httpd") {
+        return Some("ruby-httpd");
+    }
+    let first_base = argv.first().map(|a| path_basename(a)).unwrap_or("");
+    if first_base == "bun"
         && (joined.contains(" dev") || joined.contains(" run") || joined.contains(" start"))
     {
         return Some("bun");
     }
-    if argv.first().map(|a| path_basename(a)).unwrap_or("") == "deno"
+    if first_base == "deno"
         && (joined.contains(" serve") || joined.contains(" task") || joined.contains(" run"))
     {
         return Some("deno");
@@ -131,7 +175,10 @@ fn detect_generic_runtime_from_argv(argv: &[String]) -> Option<&'static str> {
         "python" | "python3" => Some("python"),
         "ruby" => Some("ruby"),
         "go" => Some("go"),
-        "java" => Some("java"),
+        "java" | "java11" | "java17" | "java21" => Some("java"),
+        "elixir" | "iex" => Some("elixir"),
+        "erl" => Some("erlang"),
+        "gleam" => Some("gleam"),
         _ => None,
     }
 }
@@ -183,7 +230,9 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains(" astro  v") || (screen.contains("astro") && screen.contains("ready in")) {
         return Some("astro");
     }
-    if screen.contains("Gatsby develop") || (screen.contains("gatsby") && screen.contains("You can now view")) {
+    if screen.contains("Gatsby develop")
+        || (screen.contains("gatsby") && screen.contains("You can now view"))
+    {
         return Some("gatsby");
     }
     if screen.contains("Storybook") && (screen.contains("started") || screen.contains("ready")) {
@@ -198,7 +247,10 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains("Hugo") && screen.contains("Web Server is available at") {
         return Some("hugo");
     }
-    if screen.contains("Server address:") && screen.contains("127.0.0.1") && screen.contains("Server running") {
+    if screen.contains("Server address:")
+        && screen.contains("127.0.0.1")
+        && screen.contains("Server running")
+    {
         return Some("jekyll");
     }
     if screen.contains("[11ty]") && (screen.contains("Watching") || screen.contains("Serving")) {
@@ -224,7 +276,8 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     {
         return Some("flask");
     }
-    if screen.contains("LITESTAR") || (screen.contains("litestar") && screen.contains("Listening")) {
+    if screen.contains("LITESTAR") || (screen.contains("litestar") && screen.contains("Listening"))
+    {
         return Some("litestar");
     }
     if screen.contains("Listening at:") && screen.contains("workers") {
@@ -255,10 +308,14 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains("Quarkus") && screen.contains("started in") {
         return Some("quarkus");
     }
-    if screen.contains("Micronaut") && (screen.contains("Startup completed") || screen.contains("startup completed")) {
+    if screen.contains("Micronaut")
+        && (screen.contains("Startup completed") || screen.contains("startup completed"))
+    {
         return Some("micronaut");
     }
-    if screen.contains("Application - Application started") || (screen.contains("ktor") && screen.contains("Responding at")) {
+    if screen.contains("Application - Application started")
+        || (screen.contains("ktor") && screen.contains("Responding at"))
+    {
         return Some("ktor");
     }
     if screen.contains("Running ") && screen.contains("Endpoint") && screen.contains("http") {
@@ -267,13 +324,17 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains("Now listening on") && screen.contains("http") {
         return Some("dotnet");
     }
-    if screen.contains("Trunk version") || (screen.contains("✔ success") && screen.contains("trunk")) {
+    if screen.contains("Trunk version")
+        || (screen.contains("✔ success") && screen.contains("trunk"))
+    {
         return Some("trunk");
     }
     if screen.contains("watching .") && screen.contains("building...") {
         return Some("air");
     }
-    if screen.contains("shadow-cljs") && (screen.contains("Build completed") || screen.contains("waiting for changes")) {
+    if screen.contains("shadow-cljs")
+        && (screen.contains("Build completed") || screen.contains("waiting for changes"))
+    {
         return Some("shadow-cljs");
     }
     if screen.contains("bun run") || screen.contains("$ bun ") {
@@ -281,6 +342,81 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     }
     if screen.contains("Listening on http") && screen.contains("deno") {
         return Some("deno");
+    }
+    // Rust web frameworks
+    if screen.contains("[GIN-debug]") {
+        return Some("gin");
+    }
+    if screen.contains("⇨ http server started") {
+        return Some("echo");
+    }
+    if screen.contains("Rocket has launched") {
+        return Some("rocket");
+    }
+    if screen.contains("Actix Web v") {
+        return Some("actix-web");
+    }
+    if screen.contains("Fiber v") && screen.contains("Listen") {
+        return Some("fiber");
+    }
+    if screen.contains("warp::server") {
+        return Some("warp");
+    }
+    if screen.contains("axum: listening on") {
+        return Some("axum");
+    }
+    // Gleam
+    if screen.contains("gleam") && screen.contains("Listening on") {
+        return Some("gleam");
+    }
+    // Databases
+    if screen.contains("database system is ready to accept connections") {
+        return Some("postgres");
+    }
+    if screen.contains("ready for connections")
+        && (screen.contains("MySQL") || screen.contains("MariaDB"))
+    {
+        return Some("mysql");
+    }
+    if screen.contains("Waiting for connections") && screen.contains("mongod") {
+        return Some("mongodb");
+    }
+    if screen.contains("Ready to accept connections") && screen.contains("Redis") {
+        return Some("redis");
+    }
+    if screen.contains("CockroachDB node starting") || screen.contains("CockroachDB node ready") {
+        return Some("cockroachdb");
+    }
+    // DevOps / monitoring
+    if screen.contains("Server is ready to receive web requests.") {
+        return Some("prometheus");
+    }
+    if (screen.contains("Grafana") || screen.contains("grafana"))
+        && screen.contains("HTTP Server Listen")
+    {
+        return Some("grafana");
+    }
+    if screen.contains("Consul agent running!") {
+        return Some("consul");
+    }
+    if screen.contains("Vault server started!")
+        || (screen.contains("Vault") && screen.contains("api_address"))
+    {
+        return Some("vault");
+    }
+    if screen.contains("ready to serve client requests") && screen.contains("etcd") {
+        return Some("etcd");
+    }
+    if screen.contains("Started Zipkin") {
+        return Some("zipkin");
+    }
+    if screen.contains("MinIO Object Storage Server") {
+        return Some("minio");
+    }
+    if screen.contains("Jaeger")
+        && (screen.contains("all components ready") || screen.contains("Starting Jaeger"))
+    {
+        return Some("jaeger");
     }
 
     None
