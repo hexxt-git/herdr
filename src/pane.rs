@@ -894,6 +894,12 @@ fn spawn_dev_server_detection_task(
                 crate::detect::dev_server::detect_dev_server(argv.as_deref(), &screen, &ports);
 
             if current != last {
+                match &current {
+                    Some(info) => {
+                        debug!(pane = ?pane_id, tool = info.tool, port = info.port, "dev server detected")
+                    }
+                    None => debug!(pane = ?pane_id, "dev server gone"),
+                }
                 let event = match &current {
                     Some(info) => crate::events::AppEvent::DevServerDetected {
                         pane_id,

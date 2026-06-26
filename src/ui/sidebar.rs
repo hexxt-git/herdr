@@ -16,7 +16,7 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
-const SERVER_PANEL_HEADER_ROWS: u16 = 3;
+pub(crate) const SERVER_PANEL_HEADER_ROWS: u16 = 3;
 const SERVER_ENTRY_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
@@ -1124,17 +1124,6 @@ fn render_dev_server_panel(
         )])),
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
-    // "all" label right-aligned in the header row
-    if area.width > 10 {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                "all",
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Right),
-            Rect::new(area.x, area.y + 1, area.width, 1),
-        );
-    }
 
     let entries = dev_server_entries_from(app, Some(terminal_runtimes));
     let body_y = area.y + SERVER_PANEL_HEADER_ROWS;

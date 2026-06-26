@@ -292,7 +292,7 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains("PHP ") && screen.contains("Development Server") {
         return Some("php");
     }
-    if screen.contains("Application ready!") {
+    if screen.contains("INFO  Application ready!") {
         return Some("laravel");
     }
     if screen.contains("Symfony") && screen.contains("Local Web Server") {
@@ -318,10 +318,11 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     {
         return Some("ktor");
     }
-    if screen.contains("Running ") && screen.contains("Endpoint") && screen.contains("http") {
+    if screen.contains("Running ") && screen.contains("Endpoint") && screen.contains("with cowboy")
+    {
         return Some("phoenix");
     }
-    if screen.contains("Now listening on") && screen.contains("http") {
+    if screen.contains("Now listening on: http") && screen.contains("Press Ctrl+C to shut down.") {
         return Some("dotnet");
     }
     if screen.contains("Trunk version")
@@ -329,7 +330,10 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     {
         return Some("trunk");
     }
-    if screen.contains("watching .") && screen.contains("building...") {
+    if screen.contains("watching .")
+        && screen.contains("building...")
+        && screen.contains("running...")
+    {
         return Some("air");
     }
     if screen.contains("shadow-cljs")

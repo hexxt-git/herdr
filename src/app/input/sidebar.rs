@@ -57,13 +57,12 @@ impl AppState {
             return None;
         }
 
-        // SERVER_PANEL_HEADER_ROWS = 3 (separator + title + implicit blank row)
-        const HEADER: u16 = 3;
-        if area.height <= HEADER {
+        let header = crate::ui::SERVER_PANEL_HEADER_ROWS;
+        if area.height <= header {
             return None;
         }
 
-        let body_y = area.y + HEADER;
+        let body_y = area.y + header;
         let body_bottom = area.y + area.height;
 
         if row < body_y || row >= body_bottom {
