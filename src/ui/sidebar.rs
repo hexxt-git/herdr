@@ -19,6 +19,8 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
+pub(crate) const SERVER_PANEL_HEADER_ROWS: u16 = 3;
+const SERVER_ENTRY_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
@@ -37,6 +39,62 @@ pub(crate) struct AgentPanelEntry {
     pub last_agent_state_change_seq: Option<u64>,
     pub state_labels: std::collections::HashMap<String, String>,
     pub tokens: std::collections::HashMap<String, String>,
+}
+
+pub(crate) struct DevServerEntry {
+    pub workspace_name: String,
+    pub tool: &'static str,
+    pub port: u16,
+    pub pane_id: crate::layout::PaneId,
+    pub ws_idx: usize,
+}
+
+/// Build the list of dev server entries from detected servers in `AppState`.
+pub(crate) fn dev_server_entries_from(
+    app: &AppState,
+    terminal_runtimes: Option<&TerminalRuntimeRegistry>,
+) -> Vec<DevServerEntry> {
+    let empty;
+    let runtimes = match terminal_runtimes {
+        Some(r) => r,
+        None => {
+            empty = TerminalRuntimeRegistry::new();
+            &empty
+        }
+    };
+    let mut entries = Vec::new();
+    for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        let ws_name = ws.display_name_from(&app.terminals, runtimes);
+        for tab in &ws.tabs {
+            for pane_id in tab.layout.pane_ids() {
+                if let Some(info) = app.detected_dev_servers.get(&pane_id) {
+                    entries.push(DevServerEntry {
+                        workspace_name: ws_name.clone(),
+                        tool: info.tool,
+                        port: info.port,
+                        pane_id,
+                        ws_idx,
+                    });
+                }
+            }
+        }
+    }
+    entries
+}
+
+fn is_active_server_pane(app: &AppState, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
+    let Some(active_ws_idx) = app.active else {
+        return false;
+    };
+    if ws_idx != active_ws_idx {
+        return false;
+    }
+    let Some(ws) = app.workspaces.get(ws_idx) else {
+        return false;
+    };
+    ws.active_tab()
+        .map(|tab| tab.layout.focused())
+        .is_some_and(|focused| focused == pane_id)
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -996,7 +1054,15 @@ pub(super) fn render_sidebar(
     let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
     render_workspace_list(app, terminal_runtimes, frame, ws_area, is_navigating);
-    render_agent_detail(app, terminal_runtimes, frame, detail_area);
+
+    if dev_servers_panel_visible(app) {
+        let (agent_area, server_area) = split_detail_area(app, detail_area);
+        render_agent_detail(app, terminal_runtimes, frame, agent_area);
+        render_dev_server_panel(app, terminal_runtimes, frame, server_area);
+    } else {
+        render_agent_detail(app, terminal_runtimes, frame, detail_area);
+    }
+
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
@@ -1417,6 +1483,142 @@ fn render_workspace_list(
             Paragraph::new(menu_line).alignment(Alignment::Right),
             menu_rect,
         );
+    }
+}
+
+/// Split the detail area between the agents panel (top) and servers panel (bottom).
+///
+/// Agents get enough height for their header plus up to half the entries; the
+/// servers panel gets the remainder.  When agents have very few entries the
+/// split tends toward 50/50 of the total height.
+/// True when the dev servers panel should take a slice of the sidebar detail area.
+pub(crate) fn dev_servers_panel_visible(app: &AppState) -> bool {
+    !app.detected_dev_servers.is_empty()
+}
+
+/// The portion of the sidebar detail area the agent panel actually occupies.
+///
+/// Geometry, hit-testing, and scroll clamping must all agree with what
+/// `render_sidebar` draws, so they share this helper rather than each
+/// re-deriving the split.
+pub(crate) fn agent_detail_area(app: &AppState, detail_area: Rect) -> Rect {
+    if dev_servers_panel_visible(app) {
+        split_detail_area(app, detail_area).0
+    } else {
+        detail_area
+    }
+}
+
+pub(crate) fn split_detail_area(app: &AppState, area: Rect) -> (Rect, Rect) {
+    if area.height == 0 {
+        return (Rect::default(), Rect::default());
+    }
+    let server_count = app.detected_dev_servers.len() as u16;
+    let server_min = SERVER_PANEL_HEADER_ROWS + server_count * SERVER_ENTRY_ROWS;
+    // The `max` floor keeps one entry visible, but must never exceed the area
+    // itself or `server_area` would extend past the sidebar.
+    let server_h = server_min
+        .min(area.height / 2)
+        .max(SERVER_PANEL_HEADER_ROWS + SERVER_ENTRY_ROWS)
+        .min(area.height);
+    let agent_h = area.height.saturating_sub(server_h);
+    let agent_area = Rect::new(area.x, area.y, area.width, agent_h);
+    let server_area = Rect::new(area.x, area.y + agent_h, area.width, server_h);
+    (agent_area, server_area)
+}
+
+fn render_dev_server_panel(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let p = &app.palette;
+
+    if area.height < SERVER_PANEL_HEADER_ROWS {
+        return;
+    }
+
+    // Separator line
+    let sep_line = "─".repeat(area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            " servers",
+            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+        )])),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+
+    let entries = dev_server_entries_from(app, Some(terminal_runtimes));
+    let body_y = area.y + SERVER_PANEL_HEADER_ROWS;
+    let body_h = area.height.saturating_sub(SERVER_PANEL_HEADER_ROWS);
+    if body_h == 0 {
+        return;
+    }
+    let body_bottom = body_y + body_h;
+
+    let mut row_y = body_y;
+    for entry in entries.iter() {
+        if row_y.saturating_add(1) >= body_bottom {
+            break;
+        }
+
+        let is_active = is_active_server_pane(app, entry.ws_idx, entry.pane_id);
+        let row_style = if is_active {
+            Style::default().bg(p.surface_dim)
+        } else {
+            Style::default()
+        };
+        let name_style = if is_active {
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
+        };
+        let port_style = if is_active {
+            Style::default().fg(p.overlay0)
+        } else {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+        };
+
+        // Row 1: "✓ workspace-name"
+        let name_line = Line::from(vec![
+            Span::styled(
+                " ✓ ",
+                Style::default().fg(p.green).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(entry.workspace_name.clone(), name_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(name_line).style(row_style),
+            Rect::new(area.x, row_y, area.width, 1),
+        );
+        row_y += 1;
+
+        if row_y >= body_bottom {
+            break;
+        }
+
+        // Row 2: "  tool · localhost:port"
+        let detail_line = Line::from(vec![
+            Span::styled("   ", Style::default()),
+            Span::styled(entry.tool.to_string(), Style::default().fg(p.green)),
+            Span::styled(format!(" · localhost:{}", entry.port), port_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(detail_line).style(row_style),
+            Rect::new(area.x, row_y, area.width, 1),
+        );
+        row_y += 1;
+
+        // Blank gap between entries
+        if row_y < body_bottom {
+            row_y += 1;
+        }
     }
 }
 

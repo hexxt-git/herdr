@@ -1486,6 +1486,10 @@ pub fn process_exists(pid: u32) -> bool {
     ok && exit_code == STILL_ACTIVE
 }
 
+pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
+    Vec::new()
+}
+
 pub fn write_clipboard(bytes: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return false;

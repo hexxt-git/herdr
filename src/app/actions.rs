@@ -2717,6 +2717,15 @@ impl AppState {
         match event {
             AppEvent::PaneDied { pane_id } => {
                 self.handle_pane_died(pane_id);
+                self.detected_dev_servers.remove(&pane_id);
+                Vec::new()
+            }
+            AppEvent::DevServerDetected { pane_id, info } => {
+                self.detected_dev_servers.insert(pane_id, info);
+                Vec::new()
+            }
+            AppEvent::DevServerGone { pane_id } => {
+                self.detected_dev_servers.remove(&pane_id);
                 Vec::new()
             }
             AppEvent::UpdateReady {

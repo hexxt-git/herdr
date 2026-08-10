@@ -185,6 +185,10 @@ pub fn process_exists(_pid: u32) -> bool {
     false
 }
 
+pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
+    Vec::new()
+}
+
 /// Unsupported platform stub.
 pub fn write_clipboard(_bytes: &[u8]) -> bool {
     false
