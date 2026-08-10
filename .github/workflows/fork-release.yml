@@ -214,11 +214,14 @@ jobs:
       # checksum-verified installer.
       - name: Write checksums
         run: |
-          for asset in herdr-linux-x86_64 herdr-linux-aarch64 herdr-macos-x86_64 \
-                       herdr-macos-aarch64 herdr-windows-x86_64.zip; do
-            sha256sum "$asset/$asset" | awk -v n="$asset" '{ print $1 "  " n }' >> SHA256SUMS
+          # Each artifact lands in its own directory, and the Windows file name
+          # does not match its directory, so glob the files rather than guess.
+          for f in herdr-*/herdr-*; do
+            sha256sum "$f" | awk -v n="$(basename "$f")" '{ print $1 "  " n }' >> SHA256SUMS
           done
           cat SHA256SUMS
+          count=$(wc -l < SHA256SUMS)
+          [ "$count" -eq 5 ] || { echo "expected 5 checksums, got $count" >&2; exit 1; }
 
       - name: Write release notes
         run: |
