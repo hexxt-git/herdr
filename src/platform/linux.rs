@@ -399,8 +399,8 @@ pub fn listening_ports_for_pgrp(pgid: u32) -> Vec<u16> {
                     Err(_) => continue,
                 };
                 let local = fields[1];
-                let port_hex = match local.splitn(2, ':').nth(1) {
-                    Some(h) => h,
+                let port_hex = match local.split_once(':') {
+                    Some((_, h)) => h,
                     None => continue,
                 };
                 let port: u16 = match u16::from_str_radix(port_hex, 16) {
