@@ -12,10 +12,10 @@ Rebase this fork onto upstream (`herdrdev/herdr`) and make sure the release stil
 4. Push (`--force-with-lease` after a rebase), then watch CI and the "Fork release" run on
    `hexxt-git/herdr`. Both must be green and the release must publish 5 assets.
 
-Keep the diff minimal. Don't touch README, CHANGELOG, `website/`, or `docs/`. Don't add config
-options — the panel is always on. Never push to upstream or open PRs/issues there.
+Keep the diff minimal: no new config options (the panel is always on), no `website/`, `docs/`, or
+CHANGELOG work, and keep the fork's README title, servers-panel note, and install curl when upstream
+edits the README. Never push to upstream or open PRs/issues there.
 
-Two tests are flaky and are not regressions: `live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session`
-and `reload_aborts_an_in_flight_command_task_and_its_descendants`. Re-run before investigating. Markdown-only
-pushes skip the release. macOS local builds need Zig 0.15.2 plus an `xcrun --show-sdk-path` shim returning
-MacOSX15.4.sdk (0.15.2 cannot link the macOS 26 SDK), or Homebrew `zig@0.15`.
+Flaky, not regressions — re-run before investigating: `live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session`
+and `reload_aborts_an_in_flight_command_task_and_its_descendants`. Markdown-only pushes skip the release.
+macOS builds need Zig 0.15.2 + an `xcrun --show-sdk-path` shim returning MacOSX15.4.sdk, or Homebrew `zig@0.15`.
