@@ -15,6 +15,7 @@ Rebase this fork onto upstream (`herdrdev/herdr`) and make sure the release stil
 Keep the diff minimal. Don't touch README, CHANGELOG, `website/`, or `docs/`. Don't add config
 options — the panel is always on. Never push to upstream or open PRs/issues there.
 
-`live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session` is flaky locally (fails on clean
-upstream too) — not a regression. Markdown-only pushes skip the release build. macOS local builds
-need Zig 0.15.2 and an `xcrun --show-sdk-path` shim returning MacOSX15.4.sdk, or Homebrew `zig@0.15`.
+Two tests are flaky and are not regressions: `live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session`
+and `reload_aborts_an_in_flight_command_task_and_its_descendants`. Re-run before investigating. Markdown-only
+pushes skip the release. macOS local builds need Zig 0.15.2 plus an `xcrun --show-sdk-path` shim returning
+MacOSX15.4.sdk (0.15.2 cannot link the macOS 26 SDK), or Homebrew `zig@0.15`.
