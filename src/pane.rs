@@ -943,9 +943,12 @@ fn spawn_basic_detection_task(
 /// Spawn a background task that detects dev servers running in a pane.
 ///
 /// Polls every 1 second, reads a wider text window than the agent detector,
-/// inspects OS socket state (Linux), and emits `DevServerDetected` /
-/// `DevServerGone` events when the result changes.
-#[cfg(unix)]
+/// and emits `DevServerDetected` / `DevServerGone` events when the result
+/// changes.
+///
+/// Port discovery reads OS socket state, which only Linux implements today;
+/// elsewhere `listening_ports_for_pgrp` returns nothing and the port is
+/// recovered from the pane's own output instead.
 fn spawn_dev_server_detection_task(
     pane_id: crate::layout::PaneId,
     child_pid: Arc<AtomicU32>,
@@ -2034,15 +2037,12 @@ impl PaneRuntime {
             full_lifecycle_authority_active.clone(),
             events.clone(),
         );
-        #[cfg(unix)]
         let dev_server_detect_handle = Some(spawn_dev_server_detection_task(
             pane_id,
             child_pid.clone(),
             terminal.clone(),
             events,
         ));
-        #[cfg(not(unix))]
-        let dev_server_detect_handle = None;
 
         Ok(Self {
             pane_id,
@@ -2563,15 +2563,12 @@ impl PaneRuntime {
             (None, Arc::new(Notify::new()), Arc::new(Mutex::new(None)))
         };
 
-        #[cfg(unix)]
         let dev_server_detect_handle = Some(spawn_dev_server_detection_task(
             pane_id,
             child_pid.clone(),
             terminal.clone(),
             events.clone(),
         ));
-        #[cfg(not(unix))]
-        let dev_server_detect_handle = None;
 
         Ok(Self {
             pane_id,

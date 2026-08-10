@@ -492,8 +492,15 @@ pub fn detect_dev_server(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Last path component of an argv entry.
+///
+/// Handles both separators regardless of host: argv can carry Windows paths
+/// (`C:\Program Files\nodejs\node.exe`) as well as POSIX ones.
 fn path_basename(s: &str) -> &str {
-    s.trim_end_matches('/').rsplit('/').next().unwrap_or(s)
+    s.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(s)
 }
 
 fn first_port_after(text: &str, prefix: &str) -> Option<u16> {
@@ -627,6 +634,25 @@ mod tests {
         // rfind would return 3001; find must return 3000
         let screen = "tcp://0.0.0.0:3000 tcp://0.0.0.0:3001";
         assert_eq!(extract_port_from_screen(screen), Some(3000));
+    }
+
+    #[test]
+    fn detect_dev_server_reads_windows_style_argv_paths() {
+        // Detection runs on every platform, and only Linux reports listening
+        // ports, so a Windows pane has to resolve both the tool name from a
+        // backslash path and the port from screen output.
+        let argv = vec![
+            "C:\\Program Files\\nodejs\\node.exe".into(),
+            "C:\\proj\\node_modules\\.bin\\vite".into(),
+        ];
+        let screen = "VITE v5.0  ready\n  ➜  Local: http://localhost:5173/";
+        assert_eq!(
+            detect_dev_server(Some(&argv), screen, &[]),
+            Some(DevServerInfo {
+                tool: "vite",
+                port: 5173
+            })
+        );
     }
 
     #[test]
