@@ -210,6 +210,16 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
 
+      # install.sh verifies downloads against this, matching upstream's
+      # checksum-verified installer.
+      - name: Write checksums
+        run: |
+          for asset in herdr-linux-x86_64 herdr-linux-aarch64 herdr-macos-x86_64 \
+                       herdr-macos-aarch64 herdr-windows-x86_64.zip; do
+            sha256sum "$asset/$asset" | awk -v n="$asset" '{ print $1 "  " n }' >> SHA256SUMS
+          done
+          cat SHA256SUMS
+
       - name: Write release notes
         run: |
           {
@@ -238,3 +248,4 @@ jobs:
             herdr-macos-x86_64/herdr-macos-x86_64
             herdr-macos-aarch64/herdr-macos-aarch64
             herdr-windows-x86_64/herdr-windows-x86_64.zip
+            SHA256SUMS
