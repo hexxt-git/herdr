@@ -376,6 +376,103 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     (!parts.is_empty()).then_some(parts)
 }
 
+/// Return TCP ports the given process group is listening on.
+///
+/// Reads `/proc/net/tcp{,6}` for LISTEN-state sockets and correlates their
+/// inodes with the open file descriptors of every process in the group.
+pub fn listening_ports_for_pgrp(pgid: u32) -> Vec<u16> {
+    if pgid == 0 {
+        return Vec::new();
+    }
+
+    // /proc/net/tcp columns: sl local_address rem_address st ... inode(9)
+    // st "0A" = TCP_LISTEN; local_address = "hex_ip:hex_port"
+    let mut inode_to_port: std::collections::HashMap<u64, u16> = std::collections::HashMap::new();
+    for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines().skip(1) {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() < 10 {
+                    continue;
+                }
+                if fields[3] != "0A" {
+                    continue;
+                }
+                let inode: u64 = match fields[9].parse() {
+                    Ok(i) => i,
+                    Err(_) => continue,
+                };
+                let local = fields[1];
+                let port_hex = match local.splitn(2, ':').nth(1) {
+                    Some(h) => h,
+                    None => continue,
+                };
+                let port: u16 = match u16::from_str_radix(port_hex, 16) {
+                    Ok(p) if p > 0 => p,
+                    _ => continue,
+                };
+                inode_to_port.insert(inode, port);
+            }
+        }
+    }
+
+    if inode_to_port.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ports: Vec<u16> = Vec::new();
+    let proc_dir = match std::fs::read_dir("/proc") {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+
+    for entry in proc_dir.flatten() {
+        let name = entry.file_name();
+        let Some(pid_str) = name.to_str() else {
+            continue;
+        };
+        if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+
+        let Some((pgrp, _)) = process_pgrp_and_comm(pid) else {
+            continue;
+        };
+        if pgrp as u32 != pgid {
+            continue;
+        }
+
+        let fd_dir = format!("/proc/{pid}/fd");
+        let Ok(fds) = std::fs::read_dir(&fd_dir) else {
+            continue;
+        };
+        for fd_entry in fds.flatten() {
+            let Ok(target) = std::fs::read_link(fd_entry.path()) else {
+                continue;
+            };
+            let target_str = target.to_string_lossy();
+            // fd symlinks for sockets look like "socket:[<inode>]"
+            if let Some(inner) = target_str
+                .strip_prefix("socket:[")
+                .and_then(|s| s.strip_suffix(']'))
+            {
+                if let Ok(inode) = inner.parse::<u64>() {
+                    if let Some(&port) = inode_to_port.get(&inode) {
+                        if !ports.contains(&port) {
+                            ports.push(port);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ports
+}
+
 /// Get the current working directory of a process.
 /// Uses /proc/<pid>/cwd symlink.
 pub fn process_cwd(pid: u32) -> Option<PathBuf> {

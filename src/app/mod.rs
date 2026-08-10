@@ -665,6 +665,7 @@ impl App {
             switch_ascii_input_source_in_prefix: config
                 .experimental
                 .switch_ascii_input_source_in_prefix,
+            detected_dev_servers: std::collections::HashMap::new(),
             kitty_graphics_enabled: config.experimental.kitty_graphics,
             default_shell: config.terminal.default_shell.clone(),
             shell_mode: config.terminal.shell_mode,
