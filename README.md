@@ -1,4 +1,4 @@
-# herdr
+# herdr (with servers panel)
 
 
 <p align="center">
@@ -36,15 +36,19 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
 - **plugins** — extend panes and workflows. [browse the marketplace →](https://herdr.dev/plugins/)
 - **one rust binary, no electron** — runs in whatever terminal you already use.
 
+> **servers panel** — this fork adds a sidebar panel listing the dev servers running in your panes and the ports they're on, by [hexxt-git](https://github.com/hexxt-git). upstream [does not accept unsolicited pull requests](https://github.com/herdrdev/herdr/blob/master/CONTRIBUTING.md) and closes them automatically, so it lives here instead.
+
 ---
 
 ## install
 
 ```bash
-curl -fsSL https://herdr.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hexxt-git/herdr/master/install.sh | sh
 ```
 
-or `brew install herdr` · `mise use -g herdr` · windows beta: `powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"` · [binaries](https://github.com/herdrdev/herdr/releases)
+installs the latest build of this fork. [binaries](https://github.com/hexxt-git/herdr/releases/latest) for linux, macos, and windows are attached to every release. `brew`, `mise`, and the upstream installer track upstream herdr and do not include the servers panel.
+
+re-run the same command to update. `herdr update` is disabled here because every fork build carries the upstream version number, so the herdr.dev manifest can only ever point back at upstream binaries.
 
 then start it where the work lives:
 

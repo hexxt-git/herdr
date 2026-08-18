@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   preflight:
+    if: github.repository == 'herdrdev/herdr'
     runs-on: ubuntu-latest
     permissions:
       contents: read
