@@ -259,6 +259,9 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
     if screen.contains("Starting up http-server") {
         return Some("http-server");
     }
+    if screen.contains("Serving HTTP on") {
+        return Some("http.server");
+    }
     if screen.contains("Zola") && screen.contains("Listening for changes") {
         return Some("zola");
     }
@@ -428,7 +431,14 @@ pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
 
 /// Extract a listening port from recent terminal output.
 pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
-    for prefix in &["localhost:", "127.0.0.1:", "0.0.0.0:", ":::"] {
+    for prefix in &[
+        "localhost:",
+        "127.0.0.1:",
+        "0.0.0.0:",
+        "[::1]:",
+        "[::]:",
+        ":::",
+    ] {
         if let Some(port) = first_port_after(screen, prefix) {
             return Some(port);
         }
@@ -443,8 +453,10 @@ pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
             }
         }
     }
-    if let Some(after) = screen.find("on port ") {
-        let digits: String = screen[after + 8..]
+    // Banners that name the port in prose: "Tomcat started on port 8080",
+    // "Serving HTTP on :: port 8000".
+    if let Some(after) = screen.find(" port ") {
+        let digits: String = screen[after + 6..]
             .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect();
@@ -462,30 +474,114 @@ pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
     None
 }
 
-/// Combine argv-based and screen-based tool detection with OS port info.
+/// Combine argv-based and screen-based tool detection.
 ///
 /// Priority: argv-specific > screen-specific > argv-generic (e.g. "node").
-/// Returns `None` when the foreground is a shell (server exited) or no port
-/// can be determined.
-pub fn detect_dev_server(
-    argv: Option<&[String]>,
-    screen: &str,
-    listening_ports: &[u16],
-) -> Option<DevServerInfo> {
-    let tool = match argv {
-        Some(a) if is_shell_process(a) => return None,
+fn detect_tool(argv: Option<&[String]>, screen: &str) -> Option<&'static str> {
+    match argv {
         Some(a) => detect_tool_from_argv(a)
             .or_else(|| detect_tool_from_screen(screen))
             .or_else(|| detect_generic_runtime_from_argv(a)),
         None => detect_tool_from_screen(screen),
-    }?;
+    }
+}
 
-    let port = listening_ports
-        .first()
-        .copied()
-        .or_else(|| extract_port_from_screen(screen))?;
+/// Consecutive polls without a live foreground process before a latched server
+/// is dropped. Absorbs transient failures to read the process table.
+const GONE_CONFIRMATIONS: u8 = 3;
 
-    Some(DevServerInfo { tool, port })
+/// A single observation of a pane, fed to [`DevServerTracker::poll`].
+pub struct DevServerPoll<'a> {
+    /// Foreground process group of the pane, if it could be read.
+    pub pgid: Option<u32>,
+    pub argv: Option<&'a [String]>,
+    pub screen: &'a str,
+    pub listening_ports: &'a [u16],
+}
+
+/// Latching dev-server detection.
+///
+/// A one-shot detection has to re-derive everything from the visible screen on
+/// every poll, so a server drops out the moment its banner scrolls past the
+/// text window or the process table read hiccups. This keeps a detected server
+/// until the foreground process group actually changes or goes away: the screen
+/// can add information but never retracts it.
+#[derive(Debug, Default)]
+pub struct DevServerTracker {
+    current: Option<DevServerInfo>,
+    /// Foreground process group the latched server was detected on.
+    pgid: Option<u32>,
+    gone_polls: u8,
+}
+
+impl DevServerTracker {
+    /// Whether an OS port lookup is still worth performing.
+    ///
+    /// Once a server is latched its port is known, and re-reading kernel socket
+    /// state every second per pane buys nothing.
+    pub fn needs_port_lookup(&self) -> bool {
+        self.current.is_none()
+    }
+
+    pub fn poll(&mut self, poll: DevServerPoll<'_>) -> Option<DevServerInfo> {
+        let foreground_runs_a_process =
+            poll.pgid.is_some() && !poll.argv.is_some_and(is_shell_process);
+
+        let (tool, port) = if foreground_runs_a_process {
+            (
+                detect_tool(poll.argv, poll.screen),
+                poll.listening_ports
+                    .first()
+                    .copied()
+                    .or_else(|| extract_port_from_screen(poll.screen)),
+            )
+        } else {
+            (None, None)
+        };
+
+        // A complete detection on another process group is a restart: adopt it
+        // straight away rather than waiting out the old one.
+        if let (Some(tool), Some(port)) = (tool, port) {
+            if self.pgid != poll.pgid || self.current.is_none() {
+                self.pgid = poll.pgid;
+                self.gone_polls = 0;
+                self.current = Some(DevServerInfo { tool, port });
+                return self.current.clone();
+            }
+        }
+
+        // Anything else on a foreign or absent process group is evidence the
+        // latched server ended, but a single poll can lie: the process table
+        // read can fail, and a shell can briefly own the terminal. Only a run
+        // of them retracts a detection.
+        if !foreground_runs_a_process || self.pgid != poll.pgid {
+            self.gone_polls = self.gone_polls.saturating_add(1);
+            if self.gone_polls >= GONE_CONFIRMATIONS {
+                self.clear();
+            }
+            return self.current.clone();
+        }
+        self.gone_polls = 0;
+
+        // Same process group: the screen can sharpen what we know but never
+        // retract it, since the banner scrolls away long before the server exits.
+        if let Some(current) = &mut self.current {
+            if let Some(tool) = tool {
+                current.tool = tool;
+            }
+            if let Some(port) = port {
+                current.port = port;
+            }
+        }
+
+        self.current.clone()
+    }
+
+    fn clear(&mut self) {
+        self.current = None;
+        self.pgid = None;
+        self.gone_polls = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn detect_dev_server_reads_windows_style_argv_paths() {
+    fn detect_reads_windows_style_argv_paths() {
         // Detection runs on every platform, and only Linux reports listening
         // ports, so a Windows pane has to resolve both the tool name from a
         // backslash path and the port from screen output.
@@ -647,7 +743,7 @@ mod tests {
         ];
         let screen = "VITE v5.0  ready\n  ➜  Local: http://localhost:5173/";
         assert_eq!(
-            detect_dev_server(Some(&argv), screen, &[]),
+            detect_once(Some(&argv), screen, &[]),
             Some(DevServerInfo {
                 tool: "vite",
                 port: 5173
@@ -656,11 +752,11 @@ mod tests {
     }
 
     #[test]
-    fn detect_dev_server_prefers_os_port() {
+    fn detect_prefers_os_port() {
         let argv = vec!["node".into(), "/proj/.bin/vite".into()];
         let screen = "VITE v5.0  ready\n  ➜  Local: http://localhost:5173/";
         assert_eq!(
-            detect_dev_server(Some(&argv), screen, &[4321]),
+            detect_once(Some(&argv), screen, &[4321]),
             Some(DevServerInfo {
                 tool: "vite",
                 port: 4321
@@ -669,23 +765,23 @@ mod tests {
     }
 
     #[test]
-    fn detect_dev_server_returns_none_without_port() {
+    fn detect_returns_none_without_port() {
         let argv = vec!["node".into(), "/proj/.bin/vite".into()];
-        assert_eq!(detect_dev_server(Some(&argv), "VITE v5 ready", &[]), None);
+        assert_eq!(detect_once(Some(&argv), "VITE v5 ready", &[]), None);
     }
 
     #[test]
     fn login_shell_clears_detection() {
         let shell_argv = vec!["-zsh".into()];
         let screen = "  VITE v6.4.3  ready in 164 ms\n  ➜  Local: http://localhost:5173/";
-        assert_eq!(detect_dev_server(Some(&shell_argv), screen, &[5173]), None);
+        assert_eq!(detect_once(Some(&shell_argv), screen, &[5173]), None);
     }
 
     #[test]
     fn bash_login_shell_clears_detection() {
         let shell_argv = vec!["-bash".into()];
         let screen = "Nest application successfully started";
-        assert_eq!(detect_dev_server(Some(&shell_argv), screen, &[3000]), None);
+        assert_eq!(detect_once(Some(&shell_argv), screen, &[3000]), None);
     }
 
     #[test]
@@ -696,12 +792,155 @@ mod tests {
         ];
         let screen = "example server listening on http://localhost:3030\n";
         assert_eq!(
-            detect_dev_server(Some(&argv), screen, &[]),
+            detect_once(Some(&argv), screen, &[]),
             Some(DevServerInfo {
                 tool: "node",
                 port: 3030
             })
         );
+    }
+
+    #[test]
+    fn detect_python_http_server_from_argv_and_banner() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let screen = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        assert_eq!(
+            detect_once(Some(&argv), screen, &[]),
+            Some(DevServerInfo {
+                tool: "http.server",
+                port: 8757,
+            })
+        );
+    }
+
+    #[test]
+    fn extract_port_from_ipv6_url() {
+        assert_eq!(
+            extract_port_from_screen("Listening on http://[::1]:4321/"),
+            Some(4321)
+        );
+    }
+
+    #[test]
+    fn detect_http_server_from_screen_alone() {
+        assert_eq!(
+            detect_tool_from_screen("Serving HTTP on 0.0.0.0 port 8000"),
+            Some("http.server")
+        );
+    }
+
+    /// One poll of a fresh tracker, for tests about a single observation.
+    fn detect_once(
+        argv: Option<&[String]>,
+        screen: &str,
+        listening_ports: &[u16],
+    ) -> Option<DevServerInfo> {
+        DevServerTracker::default().poll(DevServerPoll {
+            pgid: Some(1),
+            argv,
+            screen,
+            listening_ports,
+        })
+    }
+
+    fn poll(
+        tracker: &mut DevServerTracker,
+        pgid: Option<u32>,
+        argv: Option<&[String]>,
+        screen: &str,
+    ) -> Option<DevServerInfo> {
+        tracker.poll(DevServerPoll {
+            pgid,
+            argv,
+            screen,
+            listening_ports: &[],
+        })
+    }
+
+    #[test]
+    fn tracker_keeps_server_after_banner_scrolls_away() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let mut tracker = DevServerTracker::default();
+
+        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        assert_eq!(
+            poll(&mut tracker, Some(42), Some(&argv), banner),
+            Some(DevServerInfo {
+                tool: "http.server",
+                port: 8757,
+            })
+        );
+
+        // Request logs have pushed the banner out of the text window.
+        for _ in 0..10 {
+            assert_eq!(
+                poll(&mut tracker, Some(42), Some(&argv), "GET / HTTP/1.1 200 -"),
+                Some(DevServerInfo {
+                    tool: "http.server",
+                    port: 8757,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn tracker_survives_transient_process_read_failure() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        let mut tracker = DevServerTracker::default();
+        poll(&mut tracker, Some(42), Some(&argv), banner);
+
+        assert!(poll(&mut tracker, None, None, "").is_some());
+        assert!(poll(&mut tracker, None, None, "").is_some());
+        // Recovering resets the countdown.
+        assert!(poll(&mut tracker, Some(42), Some(&argv), "").is_some());
+        assert!(poll(&mut tracker, None, None, "").is_some());
+    }
+
+    #[test]
+    fn tracker_drops_server_after_sustained_shell_foreground() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let shell: Vec<String> = vec!["-zsh".into()];
+        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        let mut tracker = DevServerTracker::default();
+        poll(&mut tracker, Some(42), Some(&argv), banner);
+
+        assert!(poll(&mut tracker, Some(7), Some(&shell), banner).is_some());
+        assert!(poll(&mut tracker, Some(7), Some(&shell), banner).is_some());
+        assert_eq!(poll(&mut tracker, Some(7), Some(&shell), banner), None);
+    }
+
+    #[test]
+    fn tracker_drops_server_when_foreground_group_changes() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let other: Vec<String> = vec!["vim".into()];
+        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        let mut tracker = DevServerTracker::default();
+        poll(&mut tracker, Some(42), Some(&argv), banner);
+
+        // Another process owns the pane and the banner has scrolled away.
+        assert!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~").is_some());
+        assert!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~").is_some());
+        assert_eq!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~"), None);
+    }
+
+    #[test]
+    fn tracker_updates_port_on_restart() {
+        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+        let mut tracker = DevServerTracker::default();
+        poll(
+            &mut tracker,
+            Some(42),
+            Some(&argv),
+            "Serving HTTP on :: port 8000 (http://[::]:8000/) ...",
+        );
+        let restarted = poll(
+            &mut tracker,
+            Some(43),
+            Some(&argv),
+            "Serving HTTP on :: port 9000 (http://[::]:9000/) ...",
+        );
+        assert_eq!(restarted.map(|s| s.port), Some(9000));
     }
 
     #[test]
@@ -714,7 +953,7 @@ mod tests {
         ];
         let screen = " astro  v6.4.5 ready in 1214 ms\n┃ Local    http://localhost:4321/\n";
         assert_eq!(
-            detect_dev_server(Some(&argv), screen, &[]),
+            detect_once(Some(&argv), screen, &[]),
             Some(DevServerInfo {
                 tool: "astro",
                 port: 4321

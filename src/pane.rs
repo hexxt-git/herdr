@@ -954,23 +954,18 @@ fn spawn_dev_server_detection_task(
     state_events: mpsc::Sender<crate::events::AppEvent>,
 ) -> tokio::task::AbortHandle {
     let handle = tokio::spawn(async move {
+        let mut tracker = crate::detect::dev_server::DevServerTracker::default();
         let mut last: Option<crate::detect::DevServerInfo> = None;
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
             let pid = child_pid.load(Ordering::Acquire);
-            if pid == 0 {
-                if last.is_some() {
-                    last = None;
-                    let _ = state_events
-                        .send(crate::events::AppEvent::DevServerGone { pane_id })
-                        .await;
-                }
-                continue;
-            }
-
-            let pgid = crate::detect::foreground_process_group_id(pid);
+            let pgid = if pid == 0 {
+                None
+            } else {
+                crate::detect::foreground_process_group_id(pid)
+            };
             let job = pgid.and_then(|g| {
                 crate::detect::foreground_job(pid)
                     .or_else(|| crate::detect::foreground_group_leader_job(g))
@@ -984,12 +979,19 @@ fn spawn_dev_server_detection_task(
             });
 
             let screen = terminal.recent_text(150);
-            let ports = pgid
-                .map(crate::platform::listening_ports_for_pgrp)
-                .unwrap_or_default();
+            let ports = match pgid {
+                Some(pgid) if tracker.needs_port_lookup() => {
+                    crate::platform::listening_ports_for_pgrp(pgid)
+                }
+                _ => Vec::new(),
+            };
 
-            let current =
-                crate::detect::dev_server::detect_dev_server(argv.as_deref(), &screen, &ports);
+            let current = tracker.poll(crate::detect::dev_server::DevServerPoll {
+                pgid,
+                argv: argv.as_deref(),
+                screen: &screen,
+                listening_ports: &ports,
+            });
 
             if current != last {
                 match &current {
