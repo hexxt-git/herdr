@@ -20,7 +20,64 @@ impl AppState {
         }
         let (_, detail_area) =
             crate::ui::expanded_sidebar_sections(sidebar, self.sidebar_section_split);
-        detail_area
+        crate::ui::agent_detail_area(self, detail_area)
+    }
+
+    pub(super) fn dev_server_panel_rect(&self) -> Rect {
+        let sidebar = self.view.sidebar_rect;
+        if self.sidebar_collapsed
+            || sidebar.width <= 1
+            || sidebar.height == 0
+            || !crate::ui::dev_servers_panel_visible(self)
+        {
+            return Rect::default();
+        }
+        let (_, detail_area) =
+            crate::ui::expanded_sidebar_sections(sidebar, self.sidebar_section_split);
+        let (_, server_area) = crate::ui::split_detail_area(self, detail_area);
+        server_area
+    }
+
+    pub(super) fn dev_server_detail_target_at(
+        &self,
+        row: u16,
+    ) -> Option<(usize, crate::layout::PaneId)> {
+        if self.sidebar_collapsed {
+            return None;
+        }
+
+        let area = self.dev_server_panel_rect();
+        if area == Rect::default() {
+            return None;
+        }
+
+        let header = crate::ui::SERVER_PANEL_HEADER_ROWS;
+        if area.height <= header {
+            return None;
+        }
+
+        let body_y = area.y + header;
+        let body_bottom = area.y + area.height;
+
+        if row < body_y || row >= body_bottom {
+            return None;
+        }
+
+        let entries = crate::ui::dev_server_entries_from(self, None);
+        let mut row_y = body_y;
+        for entry in entries.into_iter() {
+            if row_y.saturating_add(1) >= body_bottom {
+                break;
+            }
+            if row == row_y || row == row_y + 1 {
+                return Some((entry.ws_idx, entry.pane_id));
+            }
+            row_y = row_y.saturating_add(2);
+            if row_y < body_bottom {
+                row_y = row_y.saturating_add(1);
+            }
+        }
+        None
     }
 
     pub(super) fn workspace_list_scrollbar_target_at(

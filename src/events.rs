@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use crate::detect::{Agent, AgentState};
+use crate::detect::{Agent, AgentState, DevServerInfo};
 use crate::layout::PaneId;
 use crate::workspace::{GitStatusCacheEntry, WorkspaceGitStatus};
 
@@ -62,6 +62,13 @@ pub enum AppEvent {
         agent: Agent,
         observed_at: Instant,
     },
+    /// A dev server was detected running in a pane.
+    DevServerDetected {
+        pane_id: PaneId,
+        info: DevServerInfo,
+    },
+    /// A previously detected dev server is no longer running in a pane.
+    DevServerGone { pane_id: PaneId },
     /// Fallback detector state changed in a pane.
     StateChanged {
         pane_id: PaneId,
