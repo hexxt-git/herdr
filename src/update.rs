@@ -26,6 +26,12 @@ const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
 const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
 const HERDR_UPDATE_COMMAND: &str = "herdr update";
+const FORK_INSTALL_COMMAND: &str =
+    "curl -fsSL https://raw.githubusercontent.com/hexxt-git/herdr/master/install.sh | sh";
+// Every fork build reuses the upstream `Cargo.toml` version, so the semver
+// manifests at herdr.dev can only ever resolve to upstream binaries, which do
+// not contain this fork's changes. Fork builds update through install.sh.
+const HOSTED_UPDATE_MANIFESTS_APPLY: bool = false;
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
@@ -531,6 +537,12 @@ fn first_windows_stable_is_pending(
 }
 
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
+    if !HOSTED_UPDATE_MANIFESTS_APPLY {
+        return Err(format!(
+            "this fork does not use the herdr.dev updater; reinstall with `{FORK_INSTALL_COMMAND}`"
+        ));
+    }
+
     let channel = UpdateChannel::configured();
     if channel == UpdateChannel::Preview {
         return release_info_from_preview_manifest(&fetch_preview_manifest()?);
@@ -1892,8 +1904,10 @@ pub(crate) fn update_install_command() -> &'static str {
         MISE_UPDATE_COMMAND
     } else if is_nix_managed_install() {
         NIX_UPDATE_COMMAND
-    } else {
+    } else if HOSTED_UPDATE_MANIFESTS_APPLY {
         HERDR_UPDATE_COMMAND
+    } else {
+        FORK_INSTALL_COMMAND
     }
 }
 
