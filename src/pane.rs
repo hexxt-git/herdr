@@ -1013,7 +1013,7 @@ fn spawn_dev_server_detection_task(
                     .and_then(|p| p.argv.clone())
             });
 
-            let screen = terminal.recent_text(150);
+            let screen = terminal.recent_text_snapshot(150).text;
             let ports = match pgid {
                 Some(pgid) if tracker.needs_port_lookup() => {
                     crate::platform::listening_ports_for_pgrp(pgid)
