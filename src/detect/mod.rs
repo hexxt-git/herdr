@@ -4,6 +4,7 @@
 //! against known agent output patterns to determine state.
 
 pub mod dev_server;
+pub mod dev_server_manifest;
 pub mod manifest;
 pub mod manifest_update;
 

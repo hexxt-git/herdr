@@ -1,0 +1,396 @@
+# Dev-server identification from terminal banner text.
+#
+# This is the fallback namer. A server whose listening socket is attributable
+# to a pane's process tree is named from the owning process argv instead, which
+# needs no rules at all. These patterns exist for servers no socket scan can
+# reach: inside a container, on the far side of an SSH session.
+#
+# Highest `priority` wins, so a wrapper that prints its own banner over another
+# tool's can outrank what it wraps. Equal priorities resolve by `id` order,
+# which is stable but arbitrary — set a priority rather than relying on it.
+#
+# A rule matches when every one of its top-level matchers matches:
+#   contains    every string must appear
+#   regex       every pattern must match somewhere
+#   all/any/not nested gates, for cases the flat fields cannot express
+#
+# Overriding: drop a file at ~/.config/herdr/dev-servers.toml to replace this
+# one entirely, then run `herdr server reload-agent-manifests`.
+
+version = 1
+
+# --- JavaScript build tools and frameworks ---------------------------------
+
+# SvelteKit and Remix both run on Vite and print their own banner over it.
+[[servers]]
+id = "sveltekit"
+priority = 200
+contains = ["SvelteKit v"]
+
+[[servers]]
+id = "vite"
+priority = 100
+contains = ["VITE v"]
+
+[[servers]]
+id = "nextjs"
+priority = 150
+any = [{ contains = ["▲ Next.js"] }, { contains = ["◼ Next.js"] }]
+
+[[servers]]
+id = "nestjs"
+priority = 150
+any = [
+  # "[Nest] 12345  - ..." — the bare word appears in unrelated output.
+  { regex = ['\[Nest\]\s+\d'] },
+  { contains = ["Nest application successfully started"] },
+]
+
+[[servers]]
+id = "webpack"
+priority = 150
+contains = ["[webpack-dev-server]"]
+
+[[servers]]
+id = "nuxt"
+priority = 150
+contains = ["ready"]
+any = [{ contains = ["▲ Nuxt"] }, { contains = ["Nuxt "] }]
+
+[[servers]]
+id = "remix"
+priority = 150
+any = [
+  { contains = ["Remix App Server"] },
+  { all = [{ contains = ["remix"] }, { contains = ["built"] }] },
+]
+
+[[servers]]
+id = "astro"
+priority = 150
+any = [
+  { contains = [" astro  v"] },
+  { all = [{ contains = ["astro"] }, { contains = ["ready in"] }] },
+]
+
+[[servers]]
+id = "gatsby"
+priority = 150
+any = [
+  { contains = ["Gatsby develop"] },
+  { all = [{ contains = ["gatsby"] }, { contains = ["You can now view"] }] },
+]
+
+[[servers]]
+id = "storybook"
+priority = 150
+contains = ["Storybook"]
+any = [{ contains = ["started"] }, { contains = ["ready"] }]
+
+[[servers]]
+id = "angular"
+priority = 150
+contains = ["Angular Live Development Server"]
+
+[[servers]]
+id = "expo"
+priority = 150
+contains = ["Metro", "Expo"]
+
+[[servers]]
+id = "bun"
+priority = 60
+any = [{ contains = ["bun run"] }, { contains = ["$ bun "] }]
+
+[[servers]]
+id = "deno"
+priority = 60
+contains = ["Listening on http", "deno"]
+
+# --- Static site generators ------------------------------------------------
+
+[[servers]]
+id = "hugo"
+priority = 150
+contains = ["Hugo", "Web Server is available at"]
+
+[[servers]]
+id = "jekyll"
+priority = 150
+contains = ["Server address:", "127.0.0.1", "Server running"]
+
+[[servers]]
+id = "eleventy"
+priority = 150
+contains = ["[11ty]"]
+any = [{ contains = ["Watching"] }, { contains = ["Serving"] }]
+
+[[servers]]
+id = "zola"
+priority = 150
+contains = ["Zola", "Listening for changes"]
+
+[[servers]]
+id = "mdbook"
+priority = 150
+contains = ["mdBook", "Serving on"]
+
+[[servers]]
+id = "http-server"
+priority = 150
+contains = ["Starting up http-server"]
+
+[[servers]]
+id = "http.server"
+priority = 150
+contains = ["Serving HTTP on"]
+
+# --- Python ----------------------------------------------------------------
+
+[[servers]]
+id = "uvicorn"
+priority = 150
+contains = ["Uvicorn running on"]
+
+[[servers]]
+id = "django"
+priority = 150
+contains = ["Starting development server at"]
+
+[[servers]]
+id = "flask"
+priority = 140
+any = [
+  { contains = ["Werkzeug"] },
+  { all = [{ contains = ["Running on http"] }, { contains = ["Press CTRL+C"] }] },
+]
+
+[[servers]]
+id = "litestar"
+priority = 150
+any = [
+  { contains = ["LITESTAR"] },
+  { all = [{ contains = ["litestar"] }, { contains = ["Listening"] }] },
+]
+
+[[servers]]
+id = "gunicorn"
+priority = 150
+contains = ["Listening at:", "workers"]
+
+# --- Ruby ------------------------------------------------------------------
+
+[[servers]]
+id = "rails"
+priority = 150
+contains = ["Puma "]
+any = [{ contains = ["started"] }, { contains = ["Listening"] }]
+
+[[servers]]
+id = "sinatra"
+priority = 150
+contains = ["Sinatra", "has taken the stage"]
+
+# --- PHP -------------------------------------------------------------------
+
+[[servers]]
+id = "php"
+priority = 150
+contains = ["PHP ", "Development Server"]
+
+[[servers]]
+id = "laravel"
+priority = 150
+contains = ["INFO  Application ready!"]
+
+[[servers]]
+id = "symfony"
+priority = 150
+contains = ["Symfony", "Local Web Server"]
+
+# --- JVM -------------------------------------------------------------------
+
+[[servers]]
+id = "spring"
+priority = 150
+any = [
+  { contains = ["Tomcat started on port"] },
+  { all = [
+    { contains = ["Started "] },
+    { contains = ["in "] },
+    { contains = ["seconds (process running for"] },
+  ] },
+]
+
+[[servers]]
+id = "quarkus"
+priority = 150
+contains = ["Quarkus", "started in"]
+
+[[servers]]
+id = "micronaut"
+priority = 150
+contains = ["Micronaut"]
+any = [{ contains = ["Startup completed"] }, { contains = ["startup completed"] }]
+
+[[servers]]
+id = "ktor"
+priority = 150
+any = [
+  { contains = ["Application - Application started"] },
+  { all = [{ contains = ["ktor"] }, { contains = ["Responding at"] }] },
+]
+
+# --- Other runtimes --------------------------------------------------------
+
+[[servers]]
+id = "phoenix"
+priority = 150
+contains = ["Running ", "Endpoint", "with cowboy"]
+
+[[servers]]
+id = "dotnet"
+priority = 150
+contains = ["Now listening on: http", "Press Ctrl+C to shut down."]
+
+[[servers]]
+id = "trunk"
+priority = 150
+any = [
+  { contains = ["Trunk version"] },
+  { all = [{ contains = ["✔ success"] }, { contains = ["trunk"] }] },
+]
+
+[[servers]]
+id = "air"
+priority = 150
+contains = ["watching .", "building...", "running..."]
+
+[[servers]]
+id = "shadow-cljs"
+priority = 150
+contains = ["shadow-cljs"]
+any = [{ contains = ["Build completed"] }, { contains = ["waiting for changes"] }]
+
+[[servers]]
+id = "gleam"
+priority = 150
+contains = ["gleam", "Listening on"]
+
+# --- Go and Rust web frameworks --------------------------------------------
+
+[[servers]]
+id = "gin"
+priority = 150
+contains = ["[GIN-debug]"]
+
+[[servers]]
+id = "echo"
+priority = 150
+contains = ["⇨ http server started"]
+
+[[servers]]
+id = "fiber"
+priority = 150
+contains = ["Fiber v", "Listen"]
+
+[[servers]]
+id = "rocket"
+priority = 150
+contains = ["Rocket has launched"]
+
+[[servers]]
+id = "actix-web"
+priority = 150
+contains = ["Actix Web v"]
+
+[[servers]]
+id = "warp"
+priority = 150
+contains = ["warp::server"]
+
+[[servers]]
+id = "axum"
+priority = 150
+contains = ["axum: listening on"]
+
+# --- Databases -------------------------------------------------------------
+
+[[servers]]
+id = "postgres"
+priority = 150
+contains = ["database system is ready to accept connections"]
+
+[[servers]]
+id = "mysql"
+priority = 150
+contains = ["ready for connections"]
+any = [{ contains = ["MySQL"] }, { contains = ["MariaDB"] }]
+
+[[servers]]
+id = "mongodb"
+priority = 150
+contains = ["Waiting for connections", "mongod"]
+
+[[servers]]
+id = "redis"
+priority = 150
+contains = ["Ready to accept connections", "Redis"]
+
+[[servers]]
+id = "cockroachdb"
+priority = 150
+any = [
+  { contains = ["CockroachDB node starting"] },
+  { contains = ["CockroachDB node ready"] },
+]
+
+# --- Infrastructure --------------------------------------------------------
+
+[[servers]]
+id = "prometheus"
+priority = 150
+contains = ["Server is ready to receive web requests."]
+
+[[servers]]
+id = "grafana"
+priority = 150
+contains = ["HTTP Server Listen"]
+any = [{ contains = ["Grafana"] }, { contains = ["grafana"] }]
+
+[[servers]]
+id = "consul"
+priority = 150
+contains = ["Consul agent running!"]
+
+[[servers]]
+id = "vault"
+priority = 150
+any = [
+  { contains = ["Vault server started!"] },
+  { all = [{ contains = ["Vault"] }, { contains = ["api_address"] }] },
+]
+
+[[servers]]
+id = "etcd"
+priority = 150
+contains = ["ready to serve client requests", "etcd"]
+
+[[servers]]
+id = "zipkin"
+priority = 150
+contains = ["Started Zipkin"]
+
+[[servers]]
+id = "minio"
+priority = 150
+contains = ["MinIO Object Storage Server"]
+
+[[servers]]
+id = "jaeger"
+priority = 150
+contains = ["Jaeger"]
+any = [
+  { contains = ["all components ready"] },
+  { contains = ["Starting Jaeger"] },
+]

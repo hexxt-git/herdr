@@ -1506,9 +1506,10 @@ pub struct AppState {
     /// CJK IME is active. macOS only; a no-op elsewhere. See
     /// `[experimental] switch_ascii_input_source_in_prefix`.
     pub switch_ascii_input_source_in_prefix: bool,
-    /// Detected dev servers keyed by the pane they were found in.
+    /// Detected dev servers keyed by the pane they were found in. A pane can
+    /// run several at once, so this is a list per pane rather than one entry.
     pub detected_dev_servers:
-        std::collections::HashMap<crate::layout::PaneId, crate::detect::DevServerInfo>,
+        std::collections::HashMap<crate::layout::PaneId, Vec<crate::detect::DevServerInfo>>,
     pub kitty_graphics_enabled: bool,
     pub default_shell: String,
     pub shell_mode: crate::config::ShellModeConfig,

@@ -20,9 +20,14 @@ use windows_sys::{
     Win32::{
         Foundation::{
             CloseHandle, GlobalFree, LocalFree, FILETIME, HANDLE, HWND, INVALID_HANDLE_VALUE,
-            NTSTATUS, STATUS_SUCCESS, UNICODE_STRING,
+            NO_ERROR, NTSTATUS, STATUS_SUCCESS, UNICODE_STRING,
         },
         Globalization::{CompareStringOrdinal, CSTR_EQUAL, CSTR_GREATER_THAN, CSTR_LESS_THAN},
+        NetworkManagement::IpHelper::{
+            GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID,
+            MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+        },
+        Networking::WinSock::{AF_INET, AF_INET6},
         Security::SECURITY_ATTRIBUTES,
         Storage::FileSystem::CreateDirectoryW,
         System::{
@@ -78,7 +83,7 @@ use windows_sys::{
     },
 };
 
-use super::{ClipboardImage, ForegroundJob, Signal};
+use super::{ClipboardImage, ForegroundJob, ListeningSocket, Signal};
 
 const STILL_ACTIVE: u32 = 259;
 const FOREGROUND_PROCESS_SNAPSHOT_CACHE_TTL: Duration = Duration::from_millis(250);
@@ -1410,6 +1415,11 @@ impl ProcessSnapshotCache {
     }
 }
 
+/// Full command line of a process, as argv parts.
+pub fn process_argv_for_pid(pid: u32) -> Option<Vec<String>> {
+    read_process_command(pid, "").argv
+}
+
 fn read_process_command(pid: u32, name: &str) -> WindowsProcessCommand {
     let Some(process) =
         ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ)
@@ -1839,8 +1849,116 @@ pub fn process_exists(pid: u32) -> bool {
     ok && exit_code == STILL_ACTIVE
 }
 
-pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
-    Vec::new()
+/// Every TCP socket in LISTEN state, paired with the process holding it.
+///
+/// `GetExtendedTcpTable` with `TCP_TABLE_OWNER_PID_LISTENER` returns exactly
+/// the listener rows with their owning pid, so no fd or inode correlation is
+/// needed. IPv4 and IPv6 tables are queried separately.
+///
+/// This is a whole-system scan. Call it through the shared cache in
+/// `crate::detect::dev_server`, never once per pane.
+pub fn listening_sockets() -> Vec<ListeningSocket> {
+    let mut sockets = Vec::new();
+    // SAFETY: each helper sizes its buffer from the API's own length out-param
+    // before reading, and only reads the row count the API reports.
+    unsafe {
+        collect_listeners_v4(&mut sockets);
+        collect_listeners_v6(&mut sockets);
+    }
+    sockets.sort_unstable();
+    sockets.dedup();
+    sockets
+}
+
+/// Query one extended TCP table into a right-sized buffer.
+///
+/// Returns the buffer only when the call succeeds; the table is re-queried
+/// rather than grown in a loop because a size change between the sizing call
+/// and the read is reported as `ERROR_INSUFFICIENT_BUFFER` again.
+unsafe fn extended_tcp_table(family: u32) -> Option<Vec<u8>> {
+    let mut size: u32 = 0;
+    // First call with a null buffer reports the required size.
+    GetExtendedTcpTable(
+        std::ptr::null_mut(),
+        &mut size,
+        0,
+        family,
+        TCP_TABLE_OWNER_PID_LISTENER,
+        0,
+    );
+    if size == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; size as usize];
+    let result = GetExtendedTcpTable(
+        buffer.as_mut_ptr().cast(),
+        &mut size,
+        0,
+        family,
+        TCP_TABLE_OWNER_PID_LISTENER,
+        0,
+    );
+    (result == NO_ERROR).then_some(buffer)
+}
+
+unsafe fn collect_listeners_v4(sockets: &mut Vec<ListeningSocket>) {
+    let Some(buffer) = extended_tcp_table(AF_INET as u32) else {
+        return;
+    };
+    let table = buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+    let count = (*table).dwNumEntries as usize;
+    let rows = std::ptr::addr_of!((*table).table) as *const MIB_TCPROW_OWNER_PID;
+    for index in 0..count {
+        let row = &*rows.add(index);
+        if let Some(port) = listener_port(row.dwLocalPort) {
+            sockets.push(ListeningSocket {
+                pid: row.dwOwningPid,
+                port,
+            });
+        }
+    }
+}
+
+unsafe fn collect_listeners_v6(sockets: &mut Vec<ListeningSocket>) {
+    let Some(buffer) = extended_tcp_table(AF_INET6 as u32) else {
+        return;
+    };
+    let table = buffer.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID;
+    let count = (*table).dwNumEntries as usize;
+    let rows = std::ptr::addr_of!((*table).table) as *const MIB_TCP6ROW_OWNER_PID;
+    for index in 0..count {
+        let row = &*rows.add(index);
+        if let Some(port) = listener_port(row.dwLocalPort) {
+            sockets.push(ListeningSocket {
+                pid: row.dwOwningPid,
+                port,
+            });
+        }
+    }
+}
+
+/// Ports in the TCP tables are stored in network byte order inside a `u32`.
+fn listener_port(raw: u32) -> Option<u16> {
+    let port = u16::from_be_bytes([(raw & 0xFF) as u8, ((raw >> 8) & 0xFF) as u8]);
+    (port > 0).then_some(port)
+}
+
+/// Every process in the subtree rooted at `root_pid`, including the root.
+///
+/// Uses the parent/child map from the process snapshot, so it follows the
+/// process tree regardless of how a task runner groups its children.
+pub fn descendant_pids(root_pid: u32) -> Vec<u32> {
+    if root_pid == 0 {
+        return Vec::new();
+    }
+    let snapshot = cached_foreground_processes();
+    let mut pids = vec![root_pid];
+    pids.extend(
+        descendant_entries(root_pid, &snapshot)
+            .into_iter()
+            .map(|entry| entry.pid),
+    );
+    pids
 }
 
 pub fn write_clipboard(bytes: &[u8]) -> bool {

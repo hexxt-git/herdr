@@ -18,6 +18,13 @@ pub struct ForegroundJob {
     pub processes: Vec<ForegroundProcess>,
 }
 
+/// A TCP socket in LISTEN state, with the process holding it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ListeningSocket {
+    pub pid: u32,
+    pub port: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
     Hangup,
@@ -521,5 +528,32 @@ mod tests {
             read_limited_reader(input, 16).expect("limited read"),
             LimitedRead::Complete(b"image".to_vec())
         );
+    }
+
+    /// Binds a real socket and asks the OS about it, so the per-platform
+    /// implementations are exercised rather than mocked. Restricted to the
+    /// platforms that implement the scan; elsewhere it is a documented stub.
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn listening_sockets_reports_a_socket_this_process_holds() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
+        let port = listener.local_addr().expect("local addr").port();
+        let pid = std::process::id();
+
+        let sockets = listening_sockets();
+        assert!(
+            sockets
+                .iter()
+                .any(|socket| socket.pid == pid && socket.port == port),
+            "expected pid {pid} port {port} in the listening socket table"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn descendant_pids_includes_the_root_itself() {
+        let pid = std::process::id();
+        assert!(descendant_pids(pid).contains(&pid));
+        assert!(descendant_pids(0).is_empty());
     }
 }

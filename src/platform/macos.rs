@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 use super::{
     read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
-    LimitedRead, Signal,
+    LimitedRead, ListeningSocket, Signal,
 };
 
 pub(crate) use super::unix_common::{
@@ -478,8 +478,111 @@ fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
     }
 }
 
-pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
-    Vec::new()
+/// Every TCP socket in LISTEN state, paired with a process holding it.
+///
+/// Delegates to `lsof`, which reads the same per-process socket table as
+/// `netstat` but keeps the process link. Declaring `socket_fdinfo` by hand to
+/// call `proc_pidfdinfo` directly would mean pinning a private struct layout
+/// from `sys/proc_info.h`; `lsof` ships with every macOS and owns that ABI.
+///
+/// This is a whole-system scan. Call it through the shared cache in
+/// `crate::detect::dev_server`, never once per pane.
+pub fn listening_sockets() -> Vec<ListeningSocket> {
+    // -F pn emits machine-readable records: "p<pid>" then "n<addr>:<port>".
+    let Ok(output) = Command::new("lsof")
+        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    let Ok(text) = String::from_utf8(output.stdout) else {
+        return Vec::new();
+    };
+
+    let mut sockets = parse_lsof_listeners(&text);
+    sockets.sort_unstable();
+    sockets.dedup();
+    sockets
+}
+
+/// Parse `lsof -F pn` records into listening sockets.
+///
+/// Records are line-oriented and stateful: a `p` line sets the current pid and
+/// every following `n` line belongs to it until the next `p`.
+fn parse_lsof_listeners(text: &str) -> Vec<ListeningSocket> {
+    let mut sockets = Vec::new();
+    let mut pid = None;
+    for line in text.lines() {
+        let Some((tag, value)) = line.split_at_checked(1) else {
+            continue;
+        };
+        match tag {
+            "p" => pid = value.parse::<u32>().ok(),
+            "n" => {
+                let Some(pid) = pid else { continue };
+                // Address forms: "*:3000", "127.0.0.1:3000", "[::1]:3000".
+                let Some((_, port)) = value.rsplit_once(':') else {
+                    continue;
+                };
+                if let Ok(port) = port.parse::<u16>() {
+                    if port > 0 {
+                        sockets.push(ListeningSocket { pid, port });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    sockets
+}
+
+/// Every process in the subtree rooted at `root_pid`, including the root.
+///
+/// Builds the parent/child map from `proc_bsdinfo`, so it follows the process
+/// tree regardless of process group. A task runner that puts each child in its
+/// own process group is still fully covered.
+pub fn descendant_pids(root_pid: u32) -> Vec<u32> {
+    if root_pid == 0 {
+        return Vec::new();
+    }
+
+    let mut children: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for pid in all_pids() {
+        if let Some(ppid) = process_parent_pid(pid) {
+            children.entry(ppid).or_default().push(pid);
+        }
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut pending = std::collections::VecDeque::from([root_pid]);
+    let mut pids = Vec::new();
+    visited.insert(root_pid);
+    while let Some(pid) = pending.pop_front() {
+        pids.push(pid);
+        for &child in children.get(&pid).into_iter().flatten() {
+            if visited.insert(child) {
+                pending.push_back(child);
+            }
+        }
+    }
+    pids
+}
+
+fn process_parent_pid(pid: u32) -> Option<u32> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
+    (written == size).then_some(info.pbi_ppid)
 }
 
 pub fn write_clipboard(bytes: &[u8]) -> bool {
@@ -791,6 +894,11 @@ fn comm_from_bsdinfo(info: &libc::proc_bsdinfo) -> Option<String> {
 
     let bytes: Vec<u8> = info.pbi_comm[..end].iter().map(|&b| b as u8).collect();
     String::from_utf8(bytes).ok()
+}
+
+/// Full command line of a process, as argv parts.
+pub fn process_argv_for_pid(pid: u32) -> Option<Vec<String>> {
+    process_argv(pid)
 }
 
 fn process_argv(pid: u32) -> Option<Vec<String>> {

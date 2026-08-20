@@ -975,72 +975,65 @@ fn spawn_basic_detection_task(
 
 /// Spawn a background task that detects dev servers running in a pane.
 ///
-/// Polls every 1 second, reads a wider text window than the agent detector,
-/// and emits `DevServerDetected` / `DevServerGone` events when the result
-/// changes.
+/// Ports come from a whole-system listening-socket scan shared by every pane,
+/// attributed to this pane by walking its process tree. The tree walk follows
+/// parent/child links rather than process groups, so a task runner that puts
+/// each child in its own group (turbo, concurrently, foreman) is still covered,
+/// and every server it started is reported rather than just one.
 ///
-/// Port discovery reads OS socket state, which only Linux implements today;
-/// elsewhere `listening_ports_for_pgrp` returns nothing and the port is
-/// recovered from the pane's own output instead.
+/// The screen is read only when the scan attributes nothing, which is the case
+/// for servers inside containers or on the far side of an SSH session.
 fn spawn_dev_server_detection_task(
     pane_id: crate::layout::PaneId,
     child_pid: Arc<AtomicU32>,
     terminal: Arc<PaneTerminal>,
     state_events: mpsc::Sender<crate::events::AppEvent>,
 ) -> tokio::task::AbortHandle {
+    use crate::detect::dev_server::{DevServerPoll, DevServerTracker};
+
     let handle = tokio::spawn(async move {
-        let mut tracker = crate::detect::dev_server::DevServerTracker::default();
-        let mut last: Option<crate::detect::DevServerInfo> = None;
+        let mut tracker = DevServerTracker::default();
+        let mut last: Vec<crate::detect::DevServerInfo> = Vec::new();
 
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(DEV_SERVER_POLL_INTERVAL).await;
 
             let pid = child_pid.load(Ordering::Acquire);
-            let pgid = if pid == 0 {
-                None
+            if pid == 0 {
+                continue;
+            }
+
+            // Blocking work: a process-tree walk and, when it is due, a
+            // whole-system socket scan. Neither belongs on an async worker.
+            let observation = tokio::task::spawn_blocking(move || observe_pane_sockets(pid)).await;
+            let Ok(observation) = observation else {
+                continue;
+            };
+
+            // The screen is only consulted when nothing was attributable, so a
+            // pane running a recognised server never pays for the snapshot.
+            let screen = if observation.sockets.is_empty() {
+                terminal.recent_text_snapshot(DEV_SERVER_SCREEN_LINES).text
             } else {
-                crate::detect::foreground_process_group_id(pid)
-            };
-            let job = pgid.and_then(|g| {
-                crate::detect::foreground_job(pid)
-                    .or_else(|| crate::detect::foreground_group_leader_job(g))
-            });
-            let argv: Option<Vec<String>> = job.as_ref().and_then(|j| {
-                j.processes
-                    .iter()
-                    .find(|p| pgid == Some(p.pid))
-                    .or_else(|| j.processes.first())
-                    .and_then(|p| p.argv.clone())
-            });
-
-            let screen = terminal.recent_text_snapshot(150).text;
-            let ports = match pgid {
-                Some(pgid) if tracker.needs_port_lookup() => {
-                    crate::platform::listening_ports_for_pgrp(pgid)
-                }
-                _ => Vec::new(),
+                String::new()
             };
 
-            let current = tracker.poll(crate::detect::dev_server::DevServerPoll {
-                pgid,
-                argv: argv.as_deref(),
+            let current = tracker.poll(DevServerPoll {
+                sockets: &observation.sockets,
+                scan_id: observation.scan_id,
                 screen: &screen,
-                listening_ports: &ports,
+                foreground_argv: observation.foreground_argv.as_deref(),
             });
 
             if current != last {
-                match &current {
-                    Some(info) => {
-                        debug!(pane = ?pane_id, tool = info.tool, port = info.port, "dev server detected")
-                    }
-                    None => debug!(pane = ?pane_id, "dev server gone"),
-                }
-                let event = match &current {
-                    Some(info) => crate::events::AppEvent::DevServerDetected {
-                        pane_id,
-                        info: info.clone(),
-                    },
-                    None => crate::events::AppEvent::DevServerGone { pane_id },
+                debug!(
+                    pane = ?pane_id,
+                    servers = current.len(),
+                    "dev server detection changed"
+                );
+                let event = crate::events::AppEvent::DevServersChanged {
+                    pane_id,
+                    servers: current.clone(),
                 };
                 let _ = state_events.send(event).await;
                 last = current;
@@ -1049,6 +1042,62 @@ fn spawn_dev_server_detection_task(
     });
 
     handle.abort_handle()
+}
+
+/// How often a pane re-attributes the shared socket scan to itself. Cheaper
+/// than the scan itself, which has its own longer, self-tuning interval.
+const DEV_SERVER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Lines of terminal text read on the screen-fallback path only.
+const DEV_SERVER_SCREEN_LINES: usize = 150;
+
+struct PaneSocketObservation {
+    sockets: Vec<crate::detect::dev_server::PaneSocket>,
+    scan_id: u64,
+    foreground_argv: Option<Vec<String>>,
+}
+
+/// Attribute the shared socket scan to one pane's process tree.
+fn observe_pane_sockets(child_pid: u32) -> PaneSocketObservation {
+    let scan = crate::detect::dev_server::shared_socket_scan();
+    let tree = crate::platform::descendant_pids(child_pid);
+
+    let sockets = scan
+        .sockets
+        .iter()
+        .filter(|socket| tree.contains(&socket.pid))
+        .map(|socket| crate::detect::dev_server::PaneSocket {
+            pid: socket.pid,
+            port: socket.port,
+            argv: crate::platform::process_argv_for_pid(socket.pid),
+        })
+        .collect::<Vec<_>>();
+
+    // Only needed to tell a live process from a bare prompt on the screen
+    // fallback, so skip the lookup entirely when the scan already answered.
+    let foreground_argv = sockets
+        .is_empty()
+        .then(|| {
+            crate::detect::foreground_process_group_id(child_pid)
+                .and_then(|pgid| {
+                    let job = crate::detect::foreground_job(child_pid)
+                        .or_else(|| crate::detect::foreground_group_leader_job(pgid))?;
+                    Some((pgid, job))
+                })
+                .and_then(|(pgid, job)| {
+                    job.processes
+                        .iter()
+                        .find(|p| p.pid == pgid)
+                        .or_else(|| job.processes.first())
+                        .and_then(|p| p.argv.clone())
+                })
+        })
+        .flatten();
+
+    PaneSocketObservation {
+        sockets,
+        scan_id: scan.id,
+        foreground_argv,
+    }
 }
 
 impl AgentDetectionPresence {

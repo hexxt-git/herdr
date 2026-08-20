@@ -62,13 +62,12 @@ pub enum AppEvent {
         agent: Agent,
         observed_at: Instant,
     },
-    /// A dev server was detected running in a pane.
-    DevServerDetected {
+    /// The set of dev servers detected in a pane changed. An empty list means
+    /// the pane no longer has any.
+    DevServersChanged {
         pane_id: PaneId,
-        info: DevServerInfo,
+        servers: Vec<DevServerInfo>,
     },
-    /// A previously detected dev server is no longer running in a pane.
-    DevServerGone { pane_id: PaneId },
     /// Fallback detector state changed in a pane.
     StateChanged {
         pane_id: PaneId,

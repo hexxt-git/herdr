@@ -1667,6 +1667,11 @@ impl AppState {
         }
         for pane_id in pane_ids {
             self.plugin_panes.remove(&pane_id);
+            // A pane can be removed without its process dying (handoff commit),
+            // so the detector's own "gone" event is not guaranteed to arrive.
+            // Left behind, the entry keeps the servers panel claiming sidebar
+            // height for a pane that no longer exists.
+            self.detected_dev_servers.remove(&pane_id);
         }
     }
 
@@ -2725,12 +2730,12 @@ impl AppState {
                 self.detected_dev_servers.remove(&pane_id);
                 Vec::new()
             }
-            AppEvent::DevServerDetected { pane_id, info } => {
-                self.detected_dev_servers.insert(pane_id, info);
-                Vec::new()
-            }
-            AppEvent::DevServerGone { pane_id } => {
-                self.detected_dev_servers.remove(&pane_id);
+            AppEvent::DevServersChanged { pane_id, servers } => {
+                if servers.is_empty() {
+                    self.detected_dev_servers.remove(&pane_id);
+                } else {
+                    self.detected_dev_servers.insert(pane_id, servers);
+                }
                 Vec::new()
             }
             AppEvent::UpdateReady {

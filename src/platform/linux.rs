@@ -9,7 +9,7 @@ use std::{
 
 use super::{
     read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
-    LimitedRead, Signal,
+    LimitedRead, ListeningSocket, Signal,
 };
 
 pub(crate) use super::unix_common::{
@@ -363,6 +363,11 @@ fn process_pgrp_and_comm_from_stat(stat: &str) -> Option<(i32, String)> {
     Some((pgrp, comm))
 }
 
+/// Full command line of a process, as argv parts.
+pub fn process_argv_for_pid(pid: u32) -> Option<Vec<String>> {
+    process_argv(pid)
+}
+
 fn process_argv(pid: u32) -> Option<Vec<String>> {
     let bytes = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     if bytes.is_empty() {
@@ -376,101 +381,98 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     (!parts.is_empty()).then_some(parts)
 }
 
-/// Return TCP ports the given process group is listening on.
+/// Every TCP socket in LISTEN state, paired with a process holding it.
 ///
-/// Reads `/proc/net/tcp{,6}` for LISTEN-state sockets and correlates their
-/// inodes with the open file descriptors of every process in the group.
-pub fn listening_ports_for_pgrp(pgid: u32) -> Vec<u16> {
-    if pgid == 0 {
-        return Vec::new();
-    }
-
-    // /proc/net/tcp columns: sl local_address rem_address st ... inode(9)
-    // st "0A" = TCP_LISTEN; local_address = "hex_ip:hex_port"
-    let mut inode_to_port: std::collections::HashMap<u64, u16> = std::collections::HashMap::new();
-    for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            for line in content.lines().skip(1) {
-                let fields: Vec<&str> = line.split_whitespace().collect();
-                if fields.len() < 10 {
-                    continue;
-                }
-                if fields[3] != "0A" {
-                    continue;
-                }
-                let inode: u64 = match fields[9].parse() {
-                    Ok(i) => i,
-                    Err(_) => continue,
-                };
-                let local = fields[1];
-                let port_hex = match local.split_once(':') {
-                    Some((_, h)) => h,
-                    None => continue,
-                };
-                let port: u16 = match u16::from_str_radix(port_hex, 16) {
-                    Ok(p) if p > 0 => p,
-                    _ => continue,
-                };
-                inode_to_port.insert(inode, port);
-            }
-        }
-    }
-
+/// Reads `/proc/net/tcp{,6}` for listening sockets and correlates their inodes
+/// with the open file descriptors of every readable process. Sockets owned by
+/// processes this user cannot read (root daemons, container proxies) are
+/// skipped; they have no attributable pid here.
+///
+/// This is a whole-system scan. Call it through the shared cache in
+/// `crate::detect::dev_server`, never once per pane.
+pub fn listening_sockets() -> Vec<ListeningSocket> {
+    let inode_to_port = listening_socket_inodes();
     if inode_to_port.is_empty() {
         return Vec::new();
     }
 
-    let mut ports: Vec<u16> = Vec::new();
-    let proc_dir = match std::fs::read_dir("/proc") {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
+    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
+        return Vec::new();
     };
 
+    let mut sockets = Vec::new();
     for entry in proc_dir.flatten() {
         let name = entry.file_name();
-        let Some(pid_str) = name.to_str() else {
+        let Some(pid) = name.to_str().and_then(|n| n.parse::<u32>().ok()) else {
             continue;
         };
-        if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
-        let Ok(pid) = pid_str.parse::<u32>() else {
-            continue;
-        };
-
-        let Some((pgrp, _)) = process_pgrp_and_comm(pid) else {
-            continue;
-        };
-        if pgrp as u32 != pgid {
-            continue;
-        }
-
-        let fd_dir = format!("/proc/{pid}/fd");
-        let Ok(fds) = std::fs::read_dir(&fd_dir) else {
+        let Ok(fds) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
             continue;
         };
         for fd_entry in fds.flatten() {
             let Ok(target) = std::fs::read_link(fd_entry.path()) else {
                 continue;
             };
-            let target_str = target.to_string_lossy();
-            // fd symlinks for sockets look like "socket:[<inode>]"
-            if let Some(inner) = target_str
-                .strip_prefix("socket:[")
-                .and_then(|s| s.strip_suffix(']'))
-            {
-                if let Ok(inode) = inner.parse::<u64>() {
-                    if let Some(&port) = inode_to_port.get(&inode) {
-                        if !ports.contains(&port) {
-                            ports.push(port);
-                        }
-                    }
-                }
+            // fd symlinks for sockets look like "socket:[<inode>]".
+            let Some(inode) = target
+                .to_str()
+                .and_then(|t| t.strip_prefix("socket:["))
+                .and_then(|t| t.strip_suffix(']'))
+                .and_then(|t| t.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if let Some(&port) = inode_to_port.get(&inode) {
+                sockets.push(ListeningSocket { pid, port });
             }
         }
     }
 
-    ports
+    sockets.sort_unstable();
+    sockets.dedup();
+    sockets
+}
+
+/// Inode -> local port for every LISTEN-state socket in the network tables.
+fn listening_socket_inodes() -> std::collections::HashMap<u64, u16> {
+    // /proc/net/tcp columns: sl local_address rem_address st ... inode(9)
+    // st "0A" = TCP_LISTEN; local_address = "hex_ip:hex_port"
+    let mut inode_to_port = std::collections::HashMap::new();
+    for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in content.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 10 || fields[3] != "0A" {
+                continue;
+            }
+            let Ok(inode) = fields[9].parse::<u64>() else {
+                continue;
+            };
+            let Some((_, port_hex)) = fields[1].split_once(':') else {
+                continue;
+            };
+            if let Ok(port) = u16::from_str_radix(port_hex, 16) {
+                if port > 0 {
+                    inode_to_port.insert(inode, port);
+                }
+            }
+        }
+    }
+    inode_to_port
+}
+
+/// Every process in the subtree rooted at `root_pid`, including the root.
+///
+/// Walks `/proc/<pid>/task/<tid>/children`, so it follows the parent/child
+/// tree regardless of process group. A task runner that puts each child in its
+/// own process group is still fully covered.
+pub fn descendant_pids(root_pid: u32) -> Vec<u32> {
+    if root_pid == 0 {
+        return Vec::new();
+    }
+    process_tree_pids([root_pid], process_task_ids, process_task_children)
 }
 
 /// Get the current working directory of a process.

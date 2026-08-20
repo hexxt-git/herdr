@@ -191,8 +191,19 @@ pub fn process_exists(_pid: u32) -> bool {
     false
 }
 
-pub fn listening_ports_for_pgrp(_pgid: u32) -> Vec<u16> {
+/// Unsupported platform stub.
+pub fn listening_sockets() -> Vec<super::ListeningSocket> {
     Vec::new()
+}
+
+/// Unsupported platform stub.
+pub fn descendant_pids(_root_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
+/// Unsupported platform stub.
+pub fn process_argv_for_pid(_pid: u32) -> Option<Vec<String>> {
+    None
 }
 
 /// Unsupported platform stub.

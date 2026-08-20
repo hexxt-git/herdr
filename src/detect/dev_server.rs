@@ -198,238 +198,17 @@ fn is_shell_process(argv: &[String]) -> bool {
 
 /// Identify a dev server tool from distinctive terminal banner text.
 ///
-/// Ordered most-specific first to avoid misattribution when one tool wraps another.
+/// Rules live in `dev-servers.toml`, not here, so adding a framework is a file
+/// edit and a reload rather than a rebuild. See [`crate::detect::dev_server_manifest`].
 pub fn detect_tool_from_screen(screen: &str) -> Option<&'static str> {
-    if screen.contains("VITE v") {
-        // SvelteKit wraps Vite and shows its own banner; prefer it.
-        if screen.contains("SvelteKit v") {
-            return Some("sveltekit");
-        }
-        return Some("vite");
-    }
-    if screen.contains("▲ Next.js") || screen.contains("◼ Next.js") {
-        return Some("nextjs");
-    }
-    if contains_nest_log_prefix(screen) || screen.contains("Nest application successfully started")
-    {
-        return Some("nestjs");
-    }
-    if screen.contains("[webpack-dev-server]") {
-        return Some("webpack");
-    }
-    if (screen.contains("\u{25B2} Nuxt") || screen.contains("Nuxt ")) && screen.contains("ready") {
-        return Some("nuxt");
-    }
-    if screen.contains("SvelteKit v") {
-        return Some("sveltekit");
-    }
-    if screen.contains("Remix App Server") || (screen.contains("remix") && screen.contains("built"))
-    {
-        return Some("remix");
-    }
-    if screen.contains(" astro  v") || (screen.contains("astro") && screen.contains("ready in")) {
-        return Some("astro");
-    }
-    if screen.contains("Gatsby develop")
-        || (screen.contains("gatsby") && screen.contains("You can now view"))
-    {
-        return Some("gatsby");
-    }
-    if screen.contains("Storybook") && (screen.contains("started") || screen.contains("ready")) {
-        return Some("storybook");
-    }
-    if screen.contains("Angular Live Development Server") {
-        return Some("angular");
-    }
-    if screen.contains("Metro") && screen.contains("Expo") {
-        return Some("expo");
-    }
-    if screen.contains("Hugo") && screen.contains("Web Server is available at") {
-        return Some("hugo");
-    }
-    if screen.contains("Server address:")
-        && screen.contains("127.0.0.1")
-        && screen.contains("Server running")
-    {
-        return Some("jekyll");
-    }
-    if screen.contains("[11ty]") && (screen.contains("Watching") || screen.contains("Serving")) {
-        return Some("eleventy");
-    }
-    if screen.contains("Starting up http-server") {
-        return Some("http-server");
-    }
-    if screen.contains("Serving HTTP on") {
-        return Some("http.server");
-    }
-    if screen.contains("Zola") && screen.contains("Listening for changes") {
-        return Some("zola");
-    }
-    if screen.contains("mdBook") && screen.contains("Serving on") {
-        return Some("mdbook");
-    }
-    if screen.contains("Uvicorn running on") {
-        return Some("uvicorn");
-    }
-    if screen.contains("Starting development server at") {
-        return Some("django");
-    }
-    if screen.contains("Werkzeug")
-        || (screen.contains("Running on http") && screen.contains("Press CTRL+C"))
-    {
-        return Some("flask");
-    }
-    if screen.contains("LITESTAR") || (screen.contains("litestar") && screen.contains("Listening"))
-    {
-        return Some("litestar");
-    }
-    if screen.contains("Listening at:") && screen.contains("workers") {
-        return Some("gunicorn");
-    }
-    if screen.contains("Puma ") && (screen.contains("started") || screen.contains("Listening")) {
-        return Some("rails");
-    }
-    if screen.contains("Sinatra") && screen.contains("has taken the stage") {
-        return Some("sinatra");
-    }
-    if screen.contains("PHP ") && screen.contains("Development Server") {
-        return Some("php");
-    }
-    if screen.contains("INFO  Application ready!") {
-        return Some("laravel");
-    }
-    if screen.contains("Symfony") && screen.contains("Local Web Server") {
-        return Some("symfony");
-    }
-    if screen.contains("Tomcat started on port")
-        || (screen.contains("Started ")
-            && screen.contains("in ")
-            && screen.contains("seconds (process running for"))
-    {
-        return Some("spring");
-    }
-    if screen.contains("Quarkus") && screen.contains("started in") {
-        return Some("quarkus");
-    }
-    if screen.contains("Micronaut")
-        && (screen.contains("Startup completed") || screen.contains("startup completed"))
-    {
-        return Some("micronaut");
-    }
-    if screen.contains("Application - Application started")
-        || (screen.contains("ktor") && screen.contains("Responding at"))
-    {
-        return Some("ktor");
-    }
-    if screen.contains("Running ") && screen.contains("Endpoint") && screen.contains("with cowboy")
-    {
-        return Some("phoenix");
-    }
-    if screen.contains("Now listening on: http") && screen.contains("Press Ctrl+C to shut down.") {
-        return Some("dotnet");
-    }
-    if screen.contains("Trunk version")
-        || (screen.contains("✔ success") && screen.contains("trunk"))
-    {
-        return Some("trunk");
-    }
-    if screen.contains("watching .")
-        && screen.contains("building...")
-        && screen.contains("running...")
-    {
-        return Some("air");
-    }
-    if screen.contains("shadow-cljs")
-        && (screen.contains("Build completed") || screen.contains("waiting for changes"))
-    {
-        return Some("shadow-cljs");
-    }
-    if screen.contains("bun run") || screen.contains("$ bun ") {
-        return Some("bun");
-    }
-    if screen.contains("Listening on http") && screen.contains("deno") {
-        return Some("deno");
-    }
-    // Rust web frameworks
-    if screen.contains("[GIN-debug]") {
-        return Some("gin");
-    }
-    if screen.contains("⇨ http server started") {
-        return Some("echo");
-    }
-    if screen.contains("Rocket has launched") {
-        return Some("rocket");
-    }
-    if screen.contains("Actix Web v") {
-        return Some("actix-web");
-    }
-    if screen.contains("Fiber v") && screen.contains("Listen") {
-        return Some("fiber");
-    }
-    if screen.contains("warp::server") {
-        return Some("warp");
-    }
-    if screen.contains("axum: listening on") {
-        return Some("axum");
-    }
-    // Gleam
-    if screen.contains("gleam") && screen.contains("Listening on") {
-        return Some("gleam");
-    }
-    // Databases
-    if screen.contains("database system is ready to accept connections") {
-        return Some("postgres");
-    }
-    if screen.contains("ready for connections")
-        && (screen.contains("MySQL") || screen.contains("MariaDB"))
-    {
-        return Some("mysql");
-    }
-    if screen.contains("Waiting for connections") && screen.contains("mongod") {
-        return Some("mongodb");
-    }
-    if screen.contains("Ready to accept connections") && screen.contains("Redis") {
-        return Some("redis");
-    }
-    if screen.contains("CockroachDB node starting") || screen.contains("CockroachDB node ready") {
-        return Some("cockroachdb");
-    }
-    // DevOps / monitoring
-    if screen.contains("Server is ready to receive web requests.") {
-        return Some("prometheus");
-    }
-    if (screen.contains("Grafana") || screen.contains("grafana"))
-        && screen.contains("HTTP Server Listen")
-    {
-        return Some("grafana");
-    }
-    if screen.contains("Consul agent running!") {
-        return Some("consul");
-    }
-    if screen.contains("Vault server started!")
-        || (screen.contains("Vault") && screen.contains("api_address"))
-    {
-        return Some("vault");
-    }
-    if screen.contains("ready to serve client requests") && screen.contains("etcd") {
-        return Some("etcd");
-    }
-    if screen.contains("Started Zipkin") {
-        return Some("zipkin");
-    }
-    if screen.contains("MinIO Object Storage Server") {
-        return Some("minio");
-    }
-    if screen.contains("Jaeger")
-        && (screen.contains("all components ready") || screen.contains("Starting Jaeger"))
-    {
-        return Some("jaeger");
-    }
-
-    None
+    crate::detect::dev_server_manifest::detect_tool_from_screen(screen)
 }
 
 /// Extract a listening port from recent terminal output.
+///
+/// Only used when the kernel socket table has nothing for this pane — a server
+/// inside a container, on the other end of an SSH session, or otherwise outside
+/// any process tree we can read.
 pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
     for prefix in &[
         "localhost:",
@@ -456,7 +235,7 @@ pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
     // Banners that name the port in prose: "Tomcat started on port 8080",
     // "Serving HTTP on :: port 8000".
     if let Some(after) = screen.find(" port ") {
-        let digits: String = screen[after + 6..]
+        let digits: String = screen[after + " port ".len()..]
             .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect();
@@ -466,123 +245,245 @@ pub fn extract_port_from_screen(screen: &str) -> Option<u16> {
             }
         }
     }
-    if let Some(after) = screen.find("Listening on:") {
-        if let Some(port2) = first_port_after(&screen[after + 14..], ":") {
-            return Some(port2);
+    // "Listening on: 8080". Slice at the marker's own length: any other offset
+    // can land mid-character and panic on multi-byte terminal output.
+    if let Some(after) = screen.find(LISTENING_ON_MARKER) {
+        let tail = &screen[after + LISTENING_ON_MARKER.len()..];
+        let digits: String = tail
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(p) = digits.parse::<u16>() {
+            if p > 0 {
+                return Some(p);
+            }
+        }
+        if let Some(port) = first_port_after(tail, ":") {
+            return Some(port);
         }
     }
     None
 }
 
-/// Combine argv-based and screen-based tool detection.
-///
-/// Priority: argv-specific > screen-specific > argv-generic (e.g. "node").
-fn detect_tool(argv: Option<&[String]>, screen: &str) -> Option<&'static str> {
-    match argv {
-        Some(a) => detect_tool_from_argv(a)
-            .or_else(|| detect_tool_from_screen(screen))
-            .or_else(|| detect_generic_runtime_from_argv(a)),
-        None => detect_tool_from_screen(screen),
+const LISTENING_ON_MARKER: &str = "Listening on:";
+
+// ---------------------------------------------------------------------------
+// Shared socket scan
+// ---------------------------------------------------------------------------
+
+/// Floor on the interval between whole-system socket scans.
+const MIN_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+/// Ceiling, so a pathologically slow scan still refreshes eventually.
+const MAX_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// The scan is budgeted to roughly this fraction of wall time: a scan measured
+/// at 100ms buys a 2s wait, one at 500ms buys 10s. Mirrors the backoff VS Code
+/// uses for the same whole-system scan.
+const SCAN_DUTY_CYCLE_DIVISOR: u32 = 20;
+
+/// A whole-system listening-socket scan, shared by every pane.
+#[derive(Debug)]
+pub struct SocketScan {
+    pub sockets: Vec<crate::platform::ListeningSocket>,
+    /// Distinguishes one scan from the next. Panes poll more often than scans
+    /// are taken, so they need to tell a fresh scan from a cached one.
+    pub id: u64,
+    taken_at: std::time::Instant,
+    /// How long this scan took, which sets how long the next one waits.
+    cost: std::time::Duration,
+}
+
+impl SocketScan {
+    fn next_due(&self) -> std::time::Instant {
+        let interval =
+            (self.cost * SCAN_DUTY_CYCLE_DIVISOR).clamp(MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL);
+        self.taken_at + interval
     }
 }
 
-/// Consecutive polls without a live foreground process before a latched server
-/// is dropped. Absorbs transient failures to read the process table.
+static SOCKET_SCAN: std::sync::Mutex<Option<std::sync::Arc<SocketScan>>> =
+    std::sync::Mutex::new(None);
+static SCAN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The current whole-system socket scan, refreshing it when it is due.
+///
+/// Every pane shares one scan. Scanning per pane would multiply a whole-system
+/// walk by the pane count; this keeps the cost proportional to the number of
+/// processes on the machine instead, however many panes are open.
+pub fn shared_socket_scan() -> std::sync::Arc<SocketScan> {
+    let mut guard = SOCKET_SCAN.lock().unwrap_or_else(|err| err.into_inner());
+    if let Some(scan) = guard.as_ref() {
+        if std::time::Instant::now() < scan.next_due() {
+            return std::sync::Arc::clone(scan);
+        }
+    }
+
+    let started = std::time::Instant::now();
+    let sockets = crate::platform::listening_sockets();
+    let taken_at = std::time::Instant::now();
+    let scan = std::sync::Arc::new(SocketScan {
+        sockets,
+        id: SCAN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        taken_at,
+        cost: taken_at.saturating_duration_since(started),
+    });
+    *guard = Some(std::sync::Arc::clone(&scan));
+    scan
+}
+
+/// Consecutive scans without a socket before a latched server is dropped.
+/// Absorbs a scan that briefly fails to read the process or socket tables.
 const GONE_CONFIRMATIONS: u8 = 3;
+
+/// A listening socket owned by a process inside one pane's process tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneSocket {
+    pub pid: u32,
+    pub port: u16,
+    /// Command line of the owning process, when it could be read.
+    pub argv: Option<Vec<String>>,
+}
 
 /// A single observation of a pane, fed to [`DevServerTracker::poll`].
 pub struct DevServerPoll<'a> {
-    /// Foreground process group of the pane, if it could be read.
-    pub pgid: Option<u32>,
-    pub argv: Option<&'a [String]>,
+    /// Listening sockets attributed to this pane's process tree.
+    pub sockets: &'a [PaneSocket],
+    /// Identifies the socket scan these sockets came from. Scans are shared
+    /// between panes and cached, so the same scan can be observed by several
+    /// polls; a repeated id must not be counted as fresh evidence that a
+    /// latched server is gone.
+    pub scan_id: u64,
+    /// Recent terminal text, consulted only when `sockets` is empty.
     pub screen: &'a str,
-    pub listening_ports: &'a [u16],
+    /// Foreground process argv, used to tell a live process from a bare shell
+    /// prompt on the screen-fallback path.
+    pub foreground_argv: Option<&'a [String]>,
 }
 
-/// Latching dev-server detection.
+#[derive(Debug)]
+struct LatchedServer {
+    tool: &'static str,
+    /// Owning process, or `None` for a server only the screen could see.
+    pid: Option<u32>,
+    gone_scans: u8,
+}
+
+/// Latching dev-server detection for one pane.
 ///
-/// A one-shot detection has to re-derive everything from the visible screen on
-/// every poll, so a server drops out the moment its banner scrolls past the
-/// text window or the process table read hiccups. This keeps a detected server
-/// until the foreground process group actually changes or goes away: the screen
-/// can add information but never retracts it.
+/// The kernel socket table is the primary signal: a port is attributed to this
+/// pane when the process holding it is somewhere in the pane's process tree.
+/// That covers task runners which place each child in its own process group,
+/// and it reports every server in the pane rather than just one.
+///
+/// The screen is a fallback for servers no socket scan can attribute —
+/// containers, remote hosts — and it can add information but never retract it,
+/// because a banner scrolls away long before its server exits.
 #[derive(Debug, Default)]
 pub struct DevServerTracker {
-    current: Option<DevServerInfo>,
-    /// Foreground process group the latched server was detected on.
-    pgid: Option<u32>,
-    gone_polls: u8,
+    /// Latched servers keyed by port.
+    current: std::collections::BTreeMap<u16, LatchedServer>,
+    last_scan_id: Option<u64>,
 }
 
 impl DevServerTracker {
-    /// Whether an OS port lookup is still worth performing.
+    /// Every server currently latched for this pane, ordered by port.
+    pub fn servers(&self) -> Vec<DevServerInfo> {
+        self.current
+            .iter()
+            .map(|(port, server)| DevServerInfo {
+                tool: server.tool,
+                port: *port,
+            })
+            .collect()
+    }
+
+    pub fn poll(&mut self, poll: DevServerPoll<'_>) -> Vec<DevServerInfo> {
+        let scan_is_new = self.last_scan_id != Some(poll.scan_id);
+        self.last_scan_id = Some(poll.scan_id);
+
+        for socket in poll.sockets {
+            let tool = socket
+                .argv
+                .as_deref()
+                .and_then(detect_tool_from_argv)
+                .or_else(|| detect_tool_from_screen(poll.screen))
+                .or_else(|| {
+                    socket
+                        .argv
+                        .as_deref()
+                        .and_then(detect_generic_runtime_from_argv)
+                })
+                .unwrap_or(UNKNOWN_TOOL);
+            self.current.insert(
+                socket.port,
+                LatchedServer {
+                    tool,
+                    pid: Some(socket.pid),
+                    gone_scans: 0,
+                },
+            );
+        }
+
+        // Nothing attributable through the socket table. The pane may still be
+        // running a server we cannot see into, so read the screen — but only
+        // while a real process holds the foreground, so a stale banner is not
+        // re-detected after the server exits.
+        if poll.sockets.is_empty() && !self.has_socket_backed_server() {
+            let foreground_runs_a_process = !poll.foreground_argv.is_some_and(is_shell_process);
+            if foreground_runs_a_process {
+                if let (Some(tool), Some(port)) = (
+                    detect_tool_from_screen(poll.screen),
+                    extract_port_from_screen(poll.screen),
+                ) {
+                    self.current.insert(
+                        port,
+                        LatchedServer {
+                            tool,
+                            pid: None,
+                            gone_scans: 0,
+                        },
+                    );
+                }
+            }
+        }
+
+        if scan_is_new {
+            self.retract_missing(poll.sockets);
+        }
+
+        self.servers()
+    }
+
+    /// Age out latched servers the newest scan no longer reports.
     ///
-    /// Once a server is latched its port is known, and re-reading kernel socket
-    /// state every second per pane buys nothing.
-    pub fn needs_port_lookup(&self) -> bool {
-        self.current.is_none()
+    /// Screen-only servers have no socket to disappear from, so they are held
+    /// until the pane's foreground goes quiet, which `poll` handles by simply
+    /// not refreshing them.
+    fn retract_missing(&mut self, sockets: &[PaneSocket]) {
+        self.current.retain(|port, server| {
+            if sockets.iter().any(|socket| socket.port == *port) {
+                server.gone_scans = 0;
+                return true;
+            }
+            if server.pid.is_none() {
+                // Screen-only: retract on the same schedule, since nothing else
+                // will ever confirm it.
+                server.gone_scans = server.gone_scans.saturating_add(1);
+                return server.gone_scans < GONE_CONFIRMATIONS;
+            }
+            server.gone_scans = server.gone_scans.saturating_add(1);
+            server.gone_scans < GONE_CONFIRMATIONS
+        });
     }
 
-    pub fn poll(&mut self, poll: DevServerPoll<'_>) -> Option<DevServerInfo> {
-        let foreground_runs_a_process =
-            poll.pgid.is_some() && !poll.argv.is_some_and(is_shell_process);
-
-        let (tool, port) = if foreground_runs_a_process {
-            (
-                detect_tool(poll.argv, poll.screen),
-                poll.listening_ports
-                    .first()
-                    .copied()
-                    .or_else(|| extract_port_from_screen(poll.screen)),
-            )
-        } else {
-            (None, None)
-        };
-
-        // A complete detection on another process group is a restart: adopt it
-        // straight away rather than waiting out the old one.
-        if let (Some(tool), Some(port)) = (tool, port) {
-            if self.pgid != poll.pgid || self.current.is_none() {
-                self.pgid = poll.pgid;
-                self.gone_polls = 0;
-                self.current = Some(DevServerInfo { tool, port });
-                return self.current.clone();
-            }
-        }
-
-        // Anything else on a foreign or absent process group is evidence the
-        // latched server ended, but a single poll can lie: the process table
-        // read can fail, and a shell can briefly own the terminal. Only a run
-        // of them retracts a detection.
-        if !foreground_runs_a_process || self.pgid != poll.pgid {
-            self.gone_polls = self.gone_polls.saturating_add(1);
-            if self.gone_polls >= GONE_CONFIRMATIONS {
-                self.clear();
-            }
-            return self.current.clone();
-        }
-        self.gone_polls = 0;
-
-        // Same process group: the screen can sharpen what we know but never
-        // retract it, since the banner scrolls away long before the server exits.
-        if let Some(current) = &mut self.current {
-            if let Some(tool) = tool {
-                current.tool = tool;
-            }
-            if let Some(port) = port {
-                current.port = port;
-            }
-        }
-
-        self.current.clone()
-    }
-
-    fn clear(&mut self) {
-        self.current = None;
-        self.pgid = None;
-        self.gone_polls = 0;
+    fn has_socket_backed_server(&self) -> bool {
+        self.current.values().any(|server| server.pid.is_some())
     }
 }
+
+/// Fallback name for a listening process we cannot identify. It is still a
+/// real server on a real port, so it is worth showing.
+const UNKNOWN_TOOL: &str = "server";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -618,22 +519,6 @@ fn first_port_after(text: &str, prefix: &str) -> Option<u16> {
         }
         search = &search[after..];
     }
-}
-
-fn contains_nest_log_prefix(screen: &str) -> bool {
-    let mut rest = screen;
-    while let Some(idx) = rest.find("[Nest]") {
-        let after = idx + 6;
-        let tail = rest[after..].trim_start();
-        if tail.starts_with(|c: char| c.is_ascii_digit()) {
-            return true;
-        }
-        if after >= rest.len() {
-            break;
-        }
-        rest = &rest[after..];
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------
@@ -733,83 +618,45 @@ mod tests {
     }
 
     #[test]
-    fn detect_reads_windows_style_argv_paths() {
-        // Detection runs on every platform, and only Linux reports listening
-        // ports, so a Windows pane has to resolve both the tool name from a
-        // backslash path and the port from screen output.
-        let argv = vec![
+    fn windows_style_argv_paths_resolve_the_tool() {
+        // Detection runs on every platform, so a Windows pane has to resolve
+        // the tool name from a backslash path.
+        let argv: Vec<String> = vec![
             "C:\\Program Files\\nodejs\\node.exe".into(),
             "C:\\proj\\node_modules\\.bin\\vite".into(),
         ];
-        let screen = "VITE v5.0  ready\n  ➜  Local: http://localhost:5173/";
-        assert_eq!(
-            detect_once(Some(&argv), screen, &[]),
-            Some(DevServerInfo {
-                tool: "vite",
-                port: 5173
-            })
-        );
+        assert_eq!(detect_tool_from_argv(&argv), Some("vite"));
     }
 
     #[test]
-    fn detect_prefers_os_port() {
-        let argv = vec!["node".into(), "/proj/.bin/vite".into()];
-        let screen = "VITE v5.0  ready\n  ➜  Local: http://localhost:5173/";
-        assert_eq!(
-            detect_once(Some(&argv), screen, &[4321]),
-            Some(DevServerInfo {
-                tool: "vite",
-                port: 4321
-            })
-        );
-    }
-
-    #[test]
-    fn detect_returns_none_without_port() {
-        let argv = vec!["node".into(), "/proj/.bin/vite".into()];
-        assert_eq!(detect_once(Some(&argv), "VITE v5 ready", &[]), None);
-    }
-
-    #[test]
-    fn login_shell_clears_detection() {
-        let shell_argv = vec!["-zsh".into()];
-        let screen = "  VITE v6.4.3  ready in 164 ms\n  ➜  Local: http://localhost:5173/";
-        assert_eq!(detect_once(Some(&shell_argv), screen, &[5173]), None);
-    }
-
-    #[test]
-    fn bash_login_shell_clears_detection() {
-        let shell_argv = vec!["-bash".into()];
-        let screen = "Nest application successfully started";
-        assert_eq!(detect_once(Some(&shell_argv), screen, &[3000]), None);
-    }
-
-    #[test]
-    fn node_script_detected_as_node() {
-        let argv = vec![
-            "/usr/local/bin/node".into(),
-            "/home/user/project/server.mjs".into(),
+    fn a_wrapper_argv_falls_through_to_the_screen_banner() {
+        // `npm run dev` says nothing about what it started; the banner does.
+        let argv: Vec<String> = vec![
+            "node".into(),
+            "/usr/lib/node_modules/npm/bin/npm-cli.js".into(),
+            "run".into(),
+            "dev".into(),
         ];
-        let screen = "example server listening on http://localhost:3030\n";
-        assert_eq!(
-            detect_once(Some(&argv), screen, &[]),
-            Some(DevServerInfo {
-                tool: "node",
-                port: 3030
-            })
-        );
-    }
+        assert_eq!(detect_tool_from_argv(&argv), None);
 
-    #[test]
-    fn detect_python_http_server_from_argv_and_banner() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
-        let screen = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+        let screen = " astro  v6.4.5 ready in 1214 ms\n┃ Local    http://localhost:4321/\n";
+        let sockets = [PaneSocket {
+            pid: 5,
+            port: 4321,
+            argv: Some(argv),
+        }];
+        let mut tracker = DevServerTracker::default();
         assert_eq!(
-            detect_once(Some(&argv), screen, &[]),
-            Some(DevServerInfo {
-                tool: "http.server",
-                port: 8757,
-            })
+            tracker.poll(DevServerPoll {
+                sockets: &sockets,
+                scan_id: 1,
+                screen,
+                foreground_argv: None,
+            }),
+            vec![DevServerInfo {
+                tool: "astro",
+                port: 4321
+            }]
         );
     }
 
@@ -828,136 +675,248 @@ mod tests {
             Some("http.server")
         );
     }
+    // -----------------------------------------------------------------------
+    // Tracker
+    // -----------------------------------------------------------------------
 
-    /// One poll of a fresh tracker, for tests about a single observation.
-    fn detect_once(
-        argv: Option<&[String]>,
-        screen: &str,
-        listening_ports: &[u16],
-    ) -> Option<DevServerInfo> {
-        DevServerTracker::default().poll(DevServerPoll {
-            pgid: Some(1),
-            argv,
-            screen,
-            listening_ports,
-        })
+    fn socket(pid: u32, port: u16, argv: &[&str]) -> PaneSocket {
+        PaneSocket {
+            pid,
+            port,
+            argv: Some(argv.iter().map(|a| a.to_string()).collect()),
+        }
     }
 
-    fn poll(
+    /// Poll with a fresh scan id each time, as a live pane would once the
+    /// shared scan refreshes.
+    fn poll_scan(
         tracker: &mut DevServerTracker,
-        pgid: Option<u32>,
-        argv: Option<&[String]>,
-        screen: &str,
-    ) -> Option<DevServerInfo> {
+        scan_id: u64,
+        sockets: &[PaneSocket],
+    ) -> Vec<DevServerInfo> {
         tracker.poll(DevServerPoll {
-            pgid,
-            argv,
-            screen,
-            listening_ports: &[],
+            sockets,
+            scan_id,
+            screen: "",
+            foreground_argv: None,
         })
     }
 
     #[test]
-    fn tracker_keeps_server_after_banner_scrolls_away() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
+    fn reports_every_server_a_task_runner_started() {
+        // turbo places each task in its own process group; attribution is by
+        // process tree, so all three are still this pane's.
+        let sockets = [
+            socket(201, 3000, &["node", "/repo/node_modules/.bin/next", "dev"]),
+            socket(202, 3001, &["node", "/repo/node_modules/.bin/astro", "dev"]),
+            socket(203, 4000, &["python3", "-m", "uvicorn", "app:api"]),
+        ];
         let mut tracker = DevServerTracker::default();
 
-        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
         assert_eq!(
-            poll(&mut tracker, Some(42), Some(&argv), banner),
-            Some(DevServerInfo {
-                tool: "http.server",
-                port: 8757,
-            })
+            poll_scan(&mut tracker, 1, &sockets),
+            vec![
+                DevServerInfo {
+                    tool: "nextjs",
+                    port: 3000
+                },
+                DevServerInfo {
+                    tool: "astro",
+                    port: 3001
+                },
+                DevServerInfo {
+                    tool: "uvicorn",
+                    port: 4000
+                },
+            ]
         );
+    }
 
-        // Request logs have pushed the banner out of the text window.
+    #[test]
+    fn unrecognised_listener_is_still_reported() {
+        let sockets = [socket(9, 7654, &["/opt/custom/bin/thing", "--serve"])];
+        let mut tracker = DevServerTracker::default();
+        assert_eq!(
+            poll_scan(&mut tracker, 1, &sockets),
+            vec![DevServerInfo {
+                tool: "server",
+                port: 7654
+            }]
+        );
+    }
+
+    #[test]
+    fn generic_runtime_names_a_plain_script() {
+        let sockets = [socket(9, 5000, &["node", "/repo/server.mjs"])];
+        let mut tracker = DevServerTracker::default();
+        assert_eq!(poll_scan(&mut tracker, 1, &sockets)[0].tool, "node");
+    }
+
+    #[test]
+    fn one_server_stopping_leaves_the_others() {
+        let all = [
+            socket(201, 3000, &["node", "/repo/node_modules/.bin/next", "dev"]),
+            socket(202, 3001, &["node", "/repo/node_modules/.bin/astro", "dev"]),
+        ];
+        let remaining = [all[1].clone()];
+        let mut tracker = DevServerTracker::default();
+        poll_scan(&mut tracker, 1, &all);
+
+        for scan in 2..=GONE_CONFIRMATIONS as u64 {
+            let live = poll_scan(&mut tracker, scan, &remaining);
+            assert!(live.iter().any(|s| s.port == 3000), "retracted too early");
+        }
+        let live = poll_scan(&mut tracker, GONE_CONFIRMATIONS as u64 + 1, &remaining);
+        assert_eq!(
+            live,
+            vec![DevServerInfo {
+                tool: "astro",
+                port: 3001
+            }]
+        );
+    }
+
+    #[test]
+    fn a_repeated_scan_is_not_fresh_evidence() {
+        let sockets = [socket(
+            201,
+            3000,
+            &["node", "/repo/node_modules/.bin/next", "dev"],
+        )];
+        let mut tracker = DevServerTracker::default();
+        poll_scan(&mut tracker, 1, &sockets);
+
+        // Panes poll faster than the shared scan refreshes, so the same scan is
+        // observed repeatedly. That must not age the latch out.
         for _ in 0..10 {
-            assert_eq!(
-                poll(&mut tracker, Some(42), Some(&argv), "GET / HTTP/1.1 200 -"),
-                Some(DevServerInfo {
-                    tool: "http.server",
-                    port: 8757,
-                })
-            );
+            assert_eq!(poll_scan(&mut tracker, 1, &[]).len(), 1);
         }
     }
 
     #[test]
-    fn tracker_survives_transient_process_read_failure() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
-        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+    fn a_transient_empty_scan_does_not_retract_immediately() {
+        let sockets = [socket(
+            201,
+            3000,
+            &["node", "/repo/node_modules/.bin/next", "dev"],
+        )];
         let mut tracker = DevServerTracker::default();
-        poll(&mut tracker, Some(42), Some(&argv), banner);
+        poll_scan(&mut tracker, 1, &sockets);
 
-        assert!(poll(&mut tracker, None, None, "").is_some());
-        assert!(poll(&mut tracker, None, None, "").is_some());
+        assert_eq!(poll_scan(&mut tracker, 2, &[]).len(), 1);
         // Recovering resets the countdown.
-        assert!(poll(&mut tracker, Some(42), Some(&argv), "").is_some());
-        assert!(poll(&mut tracker, None, None, "").is_some());
+        assert_eq!(poll_scan(&mut tracker, 3, &sockets).len(), 1);
+        assert_eq!(poll_scan(&mut tracker, 4, &[]).len(), 1);
+        assert_eq!(poll_scan(&mut tracker, 5, &[]).len(), 1);
     }
 
     #[test]
-    fn tracker_drops_server_after_sustained_shell_foreground() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
-        let shell: Vec<String> = vec!["-zsh".into()];
-        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
+    fn a_restart_on_a_new_port_replaces_the_old_entry() {
+        let before = [socket(
+            201,
+            3000,
+            &["node", "/repo/node_modules/.bin/next", "dev"],
+        )];
+        let after = [socket(
+            444,
+            3002,
+            &["node", "/repo/node_modules/.bin/next", "dev"],
+        )];
         let mut tracker = DevServerTracker::default();
-        poll(&mut tracker, Some(42), Some(&argv), banner);
+        poll_scan(&mut tracker, 1, &before);
 
-        assert!(poll(&mut tracker, Some(7), Some(&shell), banner).is_some());
-        assert!(poll(&mut tracker, Some(7), Some(&shell), banner).is_some());
-        assert_eq!(poll(&mut tracker, Some(7), Some(&shell), banner), None);
-    }
-
-    #[test]
-    fn tracker_drops_server_when_foreground_group_changes() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
-        let other: Vec<String> = vec!["vim".into()];
-        let banner = "Serving HTTP on :: port 8757 (http://[::]:8757/) ...";
-        let mut tracker = DevServerTracker::default();
-        poll(&mut tracker, Some(42), Some(&argv), banner);
-
-        // Another process owns the pane and the banner has scrolled away.
-        assert!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~").is_some());
-        assert!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~").is_some());
-        assert_eq!(poll(&mut tracker, Some(99), Some(&other), "~ ~ ~"), None);
-    }
-
-    #[test]
-    fn tracker_updates_port_on_restart() {
-        let argv: Vec<String> = vec!["python3".into(), "-m".into(), "http.server".into()];
-        let mut tracker = DevServerTracker::default();
-        poll(
-            &mut tracker,
-            Some(42),
-            Some(&argv),
-            "Serving HTTP on :: port 8000 (http://[::]:8000/) ...",
-        );
-        let restarted = poll(
-            &mut tracker,
-            Some(43),
-            Some(&argv),
-            "Serving HTTP on :: port 9000 (http://[::]:9000/) ...",
-        );
-        assert_eq!(restarted.map(|s| s.port), Some(9000));
-    }
-
-    #[test]
-    fn npm_wrapper_defers_to_screen_banner() {
-        let argv = vec![
-            "node".into(),
-            "/usr/lib/node_modules/npm/bin/npm-cli.js".into(),
-            "run".into(),
-            "dev".into(),
-        ];
-        let screen = " astro  v6.4.5 ready in 1214 ms\n┃ Local    http://localhost:4321/\n";
+        for scan in 2..=(GONE_CONFIRMATIONS as u64 + 1) {
+            poll_scan(&mut tracker, scan, &after);
+        }
         assert_eq!(
-            detect_once(Some(&argv), screen, &[]),
-            Some(DevServerInfo {
-                tool: "astro",
-                port: 4321
-            })
+            tracker.servers(),
+            vec![DevServerInfo {
+                tool: "nextjs",
+                port: 3002
+            }]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Screen fallback: containers and remote hosts, where no socket is ours
+    // -----------------------------------------------------------------------
+
+    fn poll_screen(
+        tracker: &mut DevServerTracker,
+        scan_id: u64,
+        screen: &str,
+        foreground_argv: Option<&[String]>,
+    ) -> Vec<DevServerInfo> {
+        tracker.poll(DevServerPoll {
+            sockets: &[],
+            scan_id,
+            screen,
+            foreground_argv,
+        })
+    }
+
+    #[test]
+    fn screen_fallback_covers_a_server_no_socket_scan_can_see() {
+        let argv: Vec<String> = vec!["docker".into(), "compose".into(), "up".into()];
+        let screen = " VITE v5.2.0  ready in 324 ms\n  ➜  Local:   http://localhost:5173/";
+        let mut tracker = DevServerTracker::default();
+        assert_eq!(
+            poll_screen(&mut tracker, 1, screen, Some(&argv)),
+            vec![DevServerInfo {
+                tool: "vite",
+                port: 5173
+            }]
+        );
+    }
+
+    #[test]
+    fn a_stale_banner_at_a_shell_prompt_is_not_detected() {
+        let shell: Vec<String> = vec!["-zsh".into()];
+        let screen = " VITE v5.2.0  ready in 324 ms\n  ➜  Local:   http://localhost:5173/";
+        let mut tracker = DevServerTracker::default();
+        assert!(poll_screen(&mut tracker, 1, screen, Some(&shell)).is_empty());
+    }
+
+    #[test]
+    fn a_socket_backed_server_is_not_second_guessed_by_the_screen() {
+        // The screen still shows an old banner on a different port; the socket
+        // table is authoritative once it has attributed something.
+        let sockets = [socket(
+            201,
+            3000,
+            &["node", "/repo/node_modules/.bin/next", "dev"],
+        )];
+        let mut tracker = DevServerTracker::default();
+        poll_scan(&mut tracker, 1, &sockets);
+
+        let stale = "  ➜  Local:   http://localhost:5173/";
+        let live = tracker.poll(DevServerPoll {
+            sockets: &[],
+            scan_id: 2,
+            screen: stale,
+            foreground_argv: None,
+        });
+        assert_eq!(live.iter().map(|s| s.port).collect::<Vec<_>>(), vec![3000]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Port extraction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn listening_on_marker_reads_a_bare_port() {
+        assert_eq!(extract_port_from_screen("Listening on: 8080"), Some(8080));
+    }
+
+    #[test]
+    fn port_extraction_survives_multibyte_text_after_the_marker() {
+        // Slicing at a fixed offset past the marker used to land mid-character
+        // and panic on output like this.
+        assert_eq!(extract_port_from_screen("Listening on:➜"), None);
+        assert_eq!(extract_port_from_screen("Listening on:"), None);
+        assert_eq!(
+            extract_port_from_screen("Listening on: ➜ http://localhost:9111/"),
+            Some(9111)
         );
     }
 }

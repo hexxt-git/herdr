@@ -54,20 +54,17 @@ pub(crate) fn dev_server_entries_from(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
 ) -> Vec<DevServerEntry> {
-    let empty;
-    let runtimes = match terminal_runtimes {
-        Some(r) => r,
-        None => {
-            empty = TerminalRuntimeRegistry::new();
-            &empty
-        }
-    };
     let mut entries = Vec::new();
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
-        let ws_name = ws.display_name_from(&app.terminals, runtimes);
+        // Hit-testing passes no registry: it only needs the row order, so skip
+        // resolving display names it will never read.
+        let ws_name = match terminal_runtimes {
+            Some(runtimes) => ws.display_name_from(&app.terminals, runtimes),
+            None => String::new(),
+        };
         for tab in &ws.tabs {
             for pane_id in tab.layout.pane_ids() {
-                if let Some(info) = app.detected_dev_servers.get(&pane_id) {
+                for info in app.detected_dev_servers.get(&pane_id).into_iter().flatten() {
                     entries.push(DevServerEntry {
                         workspace_name: ws_name.clone(),
                         tool: info.tool,
@@ -80,6 +77,12 @@ pub(crate) fn dev_server_entries_from(
         }
     }
     entries
+}
+
+/// Total detected servers across every pane. A pane can hold several, so this
+/// is not the size of the per-pane map.
+pub(crate) fn dev_server_count(app: &AppState) -> usize {
+    app.detected_dev_servers.values().map(Vec::len).sum()
 }
 
 fn is_active_server_pane(app: &AppState, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
@@ -1513,14 +1516,22 @@ pub(crate) fn split_detail_area(app: &AppState, area: Rect) -> (Rect, Rect) {
     if area.height == 0 {
         return (Rect::default(), Rect::default());
     }
-    let server_count = app.detected_dev_servers.len() as u16;
-    let server_min = SERVER_PANEL_HEADER_ROWS + server_count * SERVER_ENTRY_ROWS;
-    // The `max` floor keeps one entry visible, but must never exceed the area
-    // itself or `server_area` would extend past the sidebar.
-    let server_h = server_min
-        .min(area.height / 2)
-        .max(SERVER_PANEL_HEADER_ROWS + SERVER_ENTRY_ROWS)
-        .min(area.height);
+    let server_count = dev_server_count(app) as u16;
+    let wanted = SERVER_PANEL_HEADER_ROWS.saturating_add(server_count * SERVER_ENTRY_ROWS);
+    // The agents panel is the primary surface: the servers panel takes at most
+    // half the area, and never so much that the agent panel loses its header.
+    let available = area
+        .height
+        .saturating_sub(AGENT_PANEL_HEADER_ROWS)
+        .min(area.height / 2);
+    let server_h = wanted.min(available);
+    // Too little room to draw a header plus an entry: give it all to agents
+    // rather than render a stub panel that only costs space.
+    let server_h = if server_h < SERVER_PANEL_HEADER_ROWS + 1 {
+        0
+    } else {
+        server_h
+    };
     let agent_h = area.height.saturating_sub(server_h);
     let agent_area = Rect::new(area.x, area.y, area.width, agent_h);
     let server_area = Rect::new(area.x, area.y + agent_h, area.width, server_h);
@@ -3277,5 +3288,67 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
                 },
             ]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Servers panel geometry
+    // -----------------------------------------------------------------------
+
+    fn app_with_servers(panes: &[(crate::layout::PaneId, usize)]) -> AppState {
+        let mut app = AppState::test_new();
+        for (pane_id, count) in panes {
+            let servers = (0..*count)
+                .map(|i| crate::detect::DevServerInfo {
+                    tool: "vite",
+                    port: 3000 + i as u16,
+                })
+                .collect();
+            app.detected_dev_servers.insert(*pane_id, servers);
+        }
+        app
+    }
+
+    #[test]
+    fn server_panel_never_starves_the_agent_panel() {
+        let app = app_with_servers(&[(crate::layout::PaneId::from_raw(1), 6)]);
+        // A short detail area used to hand the whole thing to the servers
+        // panel, leaving the agents panel without room for its own header.
+        for height in 1..=24u16 {
+            let area = Rect::new(0, 0, 30, height);
+            let (agent, server) = split_detail_area(&app, area);
+            assert_eq!(
+                agent.height + server.height,
+                height,
+                "split must cover the area exactly at height {height}"
+            );
+            if server.height > 0 {
+                assert!(
+                    agent.height >= AGENT_PANEL_HEADER_ROWS,
+                    "agent panel starved at height {height}: {agent:?} / {server:?}"
+                );
+                assert!(
+                    server.height > SERVER_PANEL_HEADER_ROWS,
+                    "server panel too small to be useful at height {height}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn server_panel_sizes_from_total_servers_not_pane_count() {
+        // One pane running three servers needs the same room as three panes
+        // running one each.
+        let one_pane = app_with_servers(&[(crate::layout::PaneId::from_raw(1), 3)]);
+        let three_panes = app_with_servers(&[
+            (crate::layout::PaneId::from_raw(1), 1),
+            (crate::layout::PaneId::from_raw(2), 1),
+            (crate::layout::PaneId::from_raw(3), 1),
+        ]);
+        let area = Rect::new(0, 0, 30, 40);
+        assert_eq!(
+            split_detail_area(&one_pane, area).1.height,
+            split_detail_area(&three_panes, area).1.height
+        );
+        assert_eq!(dev_server_count(&one_pane), 3);
     }
 }
