@@ -246,3 +246,18 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
 pub fn show_desktop_notification(_title: &str, _body: Option<&str>) -> std::io::Result<bool> {
     Ok(false)
 }
+
+/// Unsupported platform stub.
+pub fn listening_sockets() -> Vec<super::ListeningSocket> {
+    Vec::new()
+}
+
+/// Unsupported platform stub.
+pub fn descendant_pids(_root_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
+/// Unsupported platform stub.
+pub fn process_argv_for_pid(_pid: u32) -> Option<Vec<String>> {
+    None
+}

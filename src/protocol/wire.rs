@@ -938,7 +938,22 @@ pub struct ClientShellSnapshot {
     pub tabs: Vec<ClientShellTab>,
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
+    /// Dev servers detected in this session's panes. Defaulted so a generation-1
+    /// client that predates the projection still decodes a newer snapshot.
+    #[serde(default)]
+    pub dev_servers: Vec<ClientShellDevServer>,
     pub commands: Vec<ClientShellCommand>,
+}
+
+/// One listening dev server attributed to a pane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellDevServer {
+    pub pane_id: String,
+    pub workspace_id: String,
+    pub workspace_label: String,
+    /// Tool identity, or "server" when the process could not be identified.
+    pub tool: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2678,6 +2693,7 @@ mod tests {
                 right_click_passthrough: false,
             }],
             agents: Vec::new(),
+            dev_servers: Vec::new(),
             commands: vec![ClientShellCommand {
                 command_id: "cmd_0123456789abcdef0123456789abcdef".into(),
                 binding_label: "prefix+z".into(),

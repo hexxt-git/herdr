@@ -2064,6 +2064,21 @@ impl ClientShellState {
                 if self.handle_endpoint_agent_click(point, outcome) {
                     return;
                 }
+                let dev_server_pane_id = self
+                    .hits
+                    .dev_servers
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, pane_id)| pane_id.clone());
+                if let Some(pane_id) = dev_server_pane_id {
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                            pane_id,
+                        }),
+                        outcome,
+                    );
+                    return;
+                }
                 let agent_pane_id = self
                     .hits
                     .agents

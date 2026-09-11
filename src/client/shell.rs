@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod actions;
 mod agent_sidebar;
 mod aggregate_navigation;
+mod dev_server_sidebar;
 mod workspace_navigation;
 use workspace_navigation::WorkspaceNavigationTarget;
 mod composition;

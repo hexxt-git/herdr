@@ -296,3 +296,33 @@ fn apply_token_style(mut style: Style, patch: crate::config::SidebarTokenStyle) 
     }
     style
 }
+
+/// One detected dev server, paired with the pane it runs in.
+pub(crate) struct DevServerEntry {
+    pub ws_idx: usize,
+    pub pane_id: crate::layout::PaneId,
+    pub tool: &'static str,
+    pub port: u16,
+}
+
+/// Every detected dev server across all workspaces, ordered by pane then port.
+///
+/// A pane can run several at once, so this is not one entry per pane.
+pub(crate) fn dev_server_entries_from(app: &AppState) -> Vec<DevServerEntry> {
+    let mut entries = Vec::new();
+    for (ws_idx, workspace) in app.workspaces.iter().enumerate() {
+        for tab in &workspace.tabs {
+            for pane_id in tab.layout.pane_ids() {
+                for info in app.detected_dev_servers.get(&pane_id).into_iter().flatten() {
+                    entries.push(DevServerEntry {
+                        ws_idx,
+                        pane_id,
+                        tool: info.tool,
+                        port: info.port,
+                    });
+                }
+            }
+        }
+    }
+    entries
+}

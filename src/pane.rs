@@ -1006,6 +1006,133 @@ fn spawn_basic_detection_task(
     (handle.abort_handle(), detect_reset_notify, pending_release)
 }
 
+/// Spawn a background task that detects dev servers running in a pane.
+///
+/// Ports come from a whole-system listening-socket scan shared by every pane,
+/// attributed to this pane by walking its process tree. The tree walk follows
+/// parent/child links rather than process groups, so a task runner that puts
+/// each child in its own group (turbo, concurrently, foreman) is still covered,
+/// and every server it started is reported rather than just one.
+///
+/// The screen is read only when the scan attributes nothing, which is the case
+/// for servers inside containers or on the far side of an SSH session.
+fn spawn_dev_server_detection_task(
+    pane_id: crate::layout::PaneId,
+    child_pid: Arc<AtomicU32>,
+    terminal: Arc<PaneTerminal>,
+    state_events: mpsc::Sender<crate::events::AppEvent>,
+) -> tokio::task::AbortHandle {
+    use crate::detect::dev_server::{DevServerPoll, DevServerTracker};
+
+    let handle = tokio::spawn(async move {
+        let mut tracker = DevServerTracker::default();
+        let mut last: Vec<crate::detect::DevServerInfo> = Vec::new();
+
+        loop {
+            tokio::time::sleep(DEV_SERVER_POLL_INTERVAL).await;
+
+            let pid = child_pid.load(Ordering::Acquire);
+            if pid == 0 {
+                continue;
+            }
+
+            // Blocking work: a process-tree walk and, when it is due, a
+            // whole-system socket scan. Neither belongs on an async worker.
+            let observation = tokio::task::spawn_blocking(move || observe_pane_sockets(pid)).await;
+            let Ok(observation) = observation else {
+                continue;
+            };
+
+            // The screen is only consulted when nothing was attributable, so a
+            // pane running a recognised server never pays for the snapshot.
+            let screen = if observation.sockets.is_empty() {
+                terminal.recent_text_snapshot(DEV_SERVER_SCREEN_LINES).text
+            } else {
+                String::new()
+            };
+
+            let current = tracker.poll(DevServerPoll {
+                sockets: &observation.sockets,
+                scan_id: observation.scan_id,
+                screen: &screen,
+                foreground_argv: observation.foreground_argv.as_deref(),
+            });
+
+            if current != last {
+                debug!(
+                    pane = ?pane_id,
+                    servers = current.len(),
+                    "dev server detection changed"
+                );
+                let event = crate::events::AppEvent::DevServersChanged {
+                    pane_id,
+                    servers: current.clone(),
+                };
+                let _ = state_events.send(event).await;
+                last = current;
+            }
+        }
+    });
+
+    handle.abort_handle()
+}
+
+/// How often a pane re-attributes the shared socket scan to itself. Cheaper
+/// than the scan itself, which has its own longer, self-tuning interval.
+const DEV_SERVER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Lines of terminal text read on the screen-fallback path only.
+const DEV_SERVER_SCREEN_LINES: usize = 150;
+
+struct PaneSocketObservation {
+    sockets: Vec<crate::detect::dev_server::PaneSocket>,
+    scan_id: u64,
+    foreground_argv: Option<Vec<String>>,
+}
+
+/// Attribute the shared socket scan to one pane's process tree.
+fn observe_pane_sockets(child_pid: u32) -> PaneSocketObservation {
+    let scan = crate::detect::dev_server::shared_socket_scan();
+    let tree = crate::platform::descendant_pids(child_pid);
+
+    let sockets = scan
+        .sockets
+        .iter()
+        .filter(|socket| tree.contains(&socket.pid))
+        .map(|socket| crate::detect::dev_server::PaneSocket {
+            pid: socket.pid,
+            port: socket.port,
+            argv: crate::platform::process_argv_for_pid(socket.pid),
+        })
+        .collect::<Vec<_>>();
+
+    // Only needed to tell a live process from a bare prompt on the screen
+    // fallback, so skip the lookup entirely when the scan already answered.
+    let foreground_argv = sockets
+        .is_empty()
+        .then(|| {
+            crate::detect::foreground_process_group_id(child_pid)
+                .and_then(|pgid| {
+                    let job = crate::detect::foreground_job(child_pid)
+                        .or_else(|| crate::detect::foreground_group_leader_job(pgid))?;
+                    Some((pgid, job))
+                })
+                .and_then(|(pgid, job)| {
+                    job.processes
+                        .iter()
+                        .find(|p| p.pid == pgid)
+                        .or_else(|| job.processes.first())
+                        .and_then(|p| p.argv.clone())
+                })
+        })
+        .flatten();
+
+    PaneSocketObservation {
+        sockets,
+        scan_id: scan.id,
+        foreground_argv,
+    }
+}
+
 impl AgentDetectionPresence {
     fn from_agent(current_agent: Option<Agent>) -> Self {
         Self {
@@ -1262,6 +1389,7 @@ pub struct PaneRuntime {
     // Task handles for deterministic shutdown
     compression: TerminalCompressionTask,
     detect_handle: Option<tokio::task::AbortHandle>,
+    dev_server_detect_handle: Option<tokio::task::AbortHandle>,
 }
 
 enum PaneRuntimeIo {
@@ -1447,6 +1575,9 @@ impl Drop for PaneRuntime {
         // Abort detection task immediately and terminate the owned session.
         // The PTY actor shuts down before the process/session policy runs.
         if let Some(handle) = &self.detect_handle {
+            handle.abort();
+        }
+        if let Some(handle) = &self.dev_server_detect_handle {
             handle.abort();
         }
         self.compression.abort();
@@ -1816,6 +1947,9 @@ impl PaneRuntime {
         if let Some(handle) = self.detect_handle.take() {
             handle.abort();
         }
+        if let Some(handle) = self.dev_server_detect_handle.take() {
+            handle.abort();
+        }
         self.compression.abort();
         self.io.shutdown();
         shutdown_pane_processes(
@@ -1841,6 +1975,9 @@ impl PaneRuntime {
             );
         }
         if let Some(handle) = self.detect_handle.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.dev_server_detect_handle.take() {
             handle.abort();
         }
         self.compression.abort();
@@ -2228,8 +2365,14 @@ impl PaneRuntime {
             terminal.clone(),
             detection_content_seq.clone(),
             full_lifecycle_authority_active.clone(),
-            events,
+            events.clone(),
         );
+        let dev_server_detect_handle = Some(spawn_dev_server_detection_task(
+            pane_id,
+            child_pid.clone(),
+            terminal.clone(),
+            events,
+        ));
 
         Ok(Self {
             pane_id,
@@ -2249,6 +2392,7 @@ impl PaneRuntime {
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(detect_handle),
+            dev_server_detect_handle,
         })
     }
 
@@ -2807,6 +2951,13 @@ impl PaneRuntime {
             (None, Arc::new(Notify::new()), Arc::new(Mutex::new(None)))
         };
 
+        let dev_server_detect_handle = Some(spawn_dev_server_detection_task(
+            pane_id,
+            child_pid.clone(),
+            terminal.clone(),
+            events.clone(),
+        ));
+
         Ok(Self {
             pane_id,
             terminal,
@@ -2825,6 +2976,7 @@ impl PaneRuntime {
             preserve_processes_on_drop: false,
             compression,
             detect_handle,
+            dev_server_detect_handle,
         })
     }
 
@@ -3478,6 +3630,7 @@ impl PaneRuntime {
                 preserve_processes_on_drop: true,
                 compression,
                 detect_handle: Some(tokio::spawn(async {}).abort_handle()),
+                dev_server_detect_handle: None,
             },
             rx,
         )
@@ -4199,6 +4352,7 @@ mod tests {
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),
+            dev_server_detect_handle: None,
         };
 
         assert!(runtime.try_send_focus_event(crate::ghostty::FocusEvent::Gained));
@@ -4236,6 +4390,7 @@ mod tests {
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),
+            dev_server_detect_handle: None,
         };
 
         assert!(!runtime.try_send_focus_event(crate::ghostty::FocusEvent::Gained));

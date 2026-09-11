@@ -414,14 +414,17 @@ pub(crate) fn render_sidebar(
         }
     }
 
+    let (agent_area, server_area) =
+        super::dev_server_sidebar::split_detail_area(snapshot, detail_area);
     super::render_agent_panel(
         buffer,
-        detail_area,
+        agent_area,
         snapshot,
         config,
         state.agent_scroll,
         hits,
     );
+    super::dev_server_sidebar::render_dev_server_panel(buffer, server_area, snapshot, config, hits);
 
     hits.sidebar_toggle = Rect::new(
         area.right().saturating_sub(2),

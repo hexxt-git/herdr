@@ -730,6 +730,9 @@ impl AppState {
         }
         for pane_id in pane_ids {
             self.plugin_panes.remove(&pane_id);
+            // A pane can be removed without its process dying (handoff commit),
+            // so the detector's own change event is not guaranteed to arrive.
+            self.detected_dev_servers.remove(&pane_id);
         }
     }
 
@@ -1591,6 +1594,14 @@ impl AppState {
         match event {
             AppEvent::PaneDied { pane_id, .. } => {
                 self.handle_pane_died(pane_id);
+                Vec::new()
+            }
+            AppEvent::DevServersChanged { pane_id, servers } => {
+                if servers.is_empty() {
+                    self.detected_dev_servers.remove(&pane_id);
+                } else {
+                    self.detected_dev_servers.insert(pane_id, servers);
+                }
                 Vec::new()
             }
             AppEvent::WorktreeRuntimeRestoreFailed { .. } => Vec::new(),

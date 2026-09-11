@@ -3,8 +3,12 @@
 //! Each pane's live bottom-of-buffer text is read periodically and matched
 //! against known agent output patterns to determine state.
 
+pub mod dev_server;
+pub mod dev_server_manifest;
 pub mod manifest;
 pub mod manifest_update;
+
+pub use dev_server::DevServerInfo;
 
 /// The detected state of a terminal pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

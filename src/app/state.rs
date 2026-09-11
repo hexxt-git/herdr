@@ -867,6 +867,10 @@ pub struct AppState {
     pub host_terminal_appearance_explicit: bool,
     /// Cached integration recommendations and detection manifest summaries.
     pub integration_recommendations: Vec<crate::integration::IntegrationRecommendation>,
+    /// Detected dev servers keyed by the pane they were found in. A pane can
+    /// run several at once, so this is a list per pane rather than one entry.
+    pub detected_dev_servers:
+        std::collections::HashMap<crate::layout::PaneId, Vec<crate::detect::DevServerInfo>>,
     pub agent_manifest_summaries: Vec<crate::detect::manifest::AgentManifestSummary>,
     /// Cached remote detection manifest update diagnostics for runtime/API status.
     pub agent_manifest_update_status: crate::detect::manifest_update::ManifestUpdateStatus,
@@ -1093,6 +1097,7 @@ impl AppState {
             host_terminal_appearance: None,
             host_terminal_appearance_explicit: false,
             integration_recommendations: Vec::new(),
+            detected_dev_servers: std::collections::HashMap::new(),
             agent_manifest_summaries: Vec::new(),
             agent_manifest_update_status:
                 crate::detect::manifest_update::ManifestUpdateStatus::default(),

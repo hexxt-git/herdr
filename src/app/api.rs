@@ -939,6 +939,10 @@ impl App {
             }
             Method::ServerReloadAgentManifests(_) => {
                 let summaries = crate::detect::manifest::reload_manifests();
+                // Dev-server banner rules are a separate table but the same
+                // kind of hot-reloadable detection data, so one command
+                // refreshes both rather than leaving one silently stale.
+                crate::detect::dev_server_manifest::reload();
                 self.state.agent_manifest_summaries = summaries.clone();
                 let update_status = crate::detect::manifest_update::load_status();
                 self.reset_all_agent_detection_runtimes();
