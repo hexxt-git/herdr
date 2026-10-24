@@ -151,6 +151,13 @@ pub struct ForegroundJob {
     pub processes: Vec<ForegroundProcess>,
 }
 
+/// A TCP socket in LISTEN state, with the process holding it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ListeningSocket {
+    pub pid: u32,
+    pub port: u16,
+}
+
 /// A request from outside the process to stop the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ServerQuitSignal {

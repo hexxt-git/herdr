@@ -182,6 +182,23 @@ pub(super) fn snapshot_with_completions(
         .agent_view_override
         .as_ref()
         .map(|view| view.label.clone().unwrap_or_else(|| "filtered".to_owned()));
+    let dev_servers = crate::ui::dev_server_entries_from(&app.state)
+        .into_iter()
+        .filter_map(|entry| {
+            Some(protocol::ClientShellDevServer {
+                pane_id: app.public_pane_id(entry.ws_idx, entry.pane_id)?,
+                workspace_id: app.public_workspace_id(entry.ws_idx),
+                workspace_label: app
+                    .state
+                    .workspaces
+                    .get(entry.ws_idx)?
+                    .display_name_from(&app.state.terminals, &app.terminal_runtimes),
+                tool: entry.tool.to_owned(),
+                port: entry.port,
+            })
+        })
+        .collect();
+
     let agent_order = crate::ui::agent_panel_entries_from(&app.state, &app.terminal_runtimes)
         .into_iter()
         .filter_map(|entry| app.public_pane_id(entry.ws_idx, entry.pane_id))
@@ -262,6 +279,7 @@ pub(super) fn snapshot_with_completions(
         tabs,
         panes,
         agents,
+        dev_servers,
         commands: app.client_shell_command_manifest(),
     };
     (shell, completions)
